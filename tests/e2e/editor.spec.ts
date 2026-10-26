@@ -367,3 +367,30 @@ test('参照ビュー: read-only notebook beside the one being written, restored
   await page.waitForFunction(() => !!(window as any).sumi?.view?.ref?.doc);
   await expect(page.getByTestId('ref-pane')).toBeVisible();
 });
+
+test('insert an image, it is selected for placing, survives reload and PDF export', async ({ page }) => {
+  await newNotebook(page);
+  // 8x8 red PNG.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC',
+    'base64',
+  );
+  await page.getByTestId('more').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByText('画像を挿入').click();
+  await (await chooser).setFiles({ name: 'photo.png', mimeType: 'image/png', buffer: png });
+  await expect(page.locator('.sel-menu')).toBeVisible();
+  let info = await docInfo(page);
+  expect(info.tool).toBe('lasso');
+  expect(info.pages[0].items.map((i) => i.type)).toEqual(['image']);
+  await flush(page);
+  await page.reload();
+  await page.waitForFunction(() => !!(window as any).sumi?.view?.doc);
+  info = await docInfo(page);
+  expect(info.pages[0].items.map((i) => i.type)).toEqual(['image']);
+  await page.getByTestId('more').click();
+  await page.getByText('PDFで書き出し / 共有').click();
+  const dl = page.waitForEvent('download');
+  await page.getByTestId('do-export').click();
+  expect((await (await dl).path()).length).toBeGreaterThan(0);
+});
