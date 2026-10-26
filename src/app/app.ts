@@ -112,8 +112,27 @@ export class App {
   }
 
   /** S Pen side button reported by the Android shell (also covers hovering, which pointer events don't). */
+  private penButtonAt = 0;
+  private penButtonDowns = 0;
+
+  /** S Pen side button (APK). A click — pressed and released within 0.4 s without writing — runs the chosen action. */
   setPenButton(down: boolean) {
-    if (this.editor) this.editor.sideButtonHeld = down;
+    const ed = this.editor;
+    if (!ed) return;
+    ed.sideButtonHeld = down;
+    if (down) {
+      this.penButtonAt = performance.now();
+      this.penButtonDowns = ed.penDowns;
+      return;
+    }
+    const click = performance.now() - this.penButtonAt < 400 && ed.penDowns === this.penButtonDowns;
+    if (!click || !ed.doc || !ed.el.isConnected || document.querySelector('.modal-backdrop, .sleep-lock')) return;
+    const action = this.settings.get().penButtonClick;
+    if (action === 'undo') ed.undo();
+    else if (action === 'highlighter' || action === 'eraser') {
+      ed.setTool(ed.tool === action ? 'pen' : action);
+      ed.toast?.(ed.tool === 'pen' ? 'ペン' : action === 'eraser' ? '消しゴム' : 'マーカー');
+    }
   }
 
   go(hash: string) {

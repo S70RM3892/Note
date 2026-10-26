@@ -22,6 +22,8 @@ export interface Settings {
   stabilization: number; // 0..0.9
   fingerDrawing: 'auto' | 'on' | 'off';
   sideButton: 'eraser' | 'lasso' | 'none';
+  /** APK: what a click of the side button (press and release without writing) does. */
+  penButtonClick: 'none' | 'undo' | 'highlighter' | 'eraser';
   shapeHold: boolean;
   eraserMode: 'stroke' | 'partial';
   eraserSize: number; // screen px radius
@@ -84,6 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
   stabilization: 0.25,
   fingerDrawing: 'off',
   sideButton: 'eraser',
+  penButtonClick: 'none',
   shapeHold: true,
   eraserMode: 'partial',
   eraserSize: 12,

@@ -338,6 +338,7 @@ export class EditorView implements View {
     const ed = this.editor;
     const doc = this.doc;
     for (const [id, b] of this.toolBtns) b.classList.toggle('active', ed.tool === id);
+    if (ed.tool !== this.paletteTool) this.renderPalette();
     this.undoBtn.disabled = !doc?.history.canUndo;
     this.redoBtn.disabled = !doc?.history.canRedo;
     this.pasteBtn.hidden = !(ed.tool === 'lasso' && hasClipboard());

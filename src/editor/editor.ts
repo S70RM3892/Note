@@ -52,6 +52,8 @@ export class Editor {
   tapeMode: 'normal' | 'hide' = 'normal';
   /** Set by the Android shell / keyboard when the S Pen side button is held. */
   sideButtonHeld = false;
+  /** Pen touches so far (tells a side-button click from press-and-write). */
+  penDowns = 0;
   /** Reference viewer: the pen scrolls instead of writing and nothing is modified. */
   readOnly = false;
   /**
@@ -464,7 +466,10 @@ export class Editor {
     if ((e.target as HTMLElement | null)?.closest?.('.ed-textedit, .ed-symbols')) return;
     const rect = this.el.getBoundingClientRect();
     const now = performance.now();
-    if (e.pointerType === 'pen') this.notePen();
+    if (e.pointerType === 'pen') {
+      this.notePen();
+      this.penDowns++;
+    }
 
     if (e.pointerType === 'touch') {
       const palm = (e.width || 0) > 90 && (e.height || 0) > 90;

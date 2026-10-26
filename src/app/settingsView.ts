@@ -182,6 +182,23 @@ export function openSettings(app: App) {
         (v) => set({ sideButton: v }),
       ),
     ),
+    native?.setPenButtonAction
+      ? h(
+          'div',
+          { class: 'field' },
+          h('label', null, 'S ペンのボタンをクリック（書かずに押して離す）すると'),
+          chipGroup<Settings['penButtonClick']>(
+            [
+              { id: 'none', label: '何もしない' },
+              { id: 'undo', label: '元に戻す' },
+              { id: 'highlighter', label: 'ペン⇄マーカー' },
+              { id: 'eraser', label: 'ペン⇄消しゴム' },
+            ],
+            s.penButtonClick,
+            (v) => set({ penButtonClick: v }),
+          ),
+        )
+      : null,
     h(
       'div',
       { class: 'field' },

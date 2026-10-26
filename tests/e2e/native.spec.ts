@@ -412,3 +412,32 @@ test('launcher shortcuts: opened with 新しいノート, then 今日の復習 w
   await expect(page.getByText('今日の復習はありません')).toBeVisible();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/');
 });
+
+test('S Pen button click: undo, or pen ⇄ eraser; press-and-write is not a click', async ({ page }) => {
+  await fakeBridge(page);
+  await newNotebook(page);
+  await pen(page, line(300, 300, 600, 300));
+  await pen(page, line(300, 400, 600, 400));
+  const button = (down: boolean) => page.evaluate((d) => (window as any).__sumiNative.onPenButton(d), down);
+  // Default: nothing.
+  await button(true);
+  await button(false);
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(2);
+  await page.evaluate(() => (window as any).sumi.settings.update({ penButtonClick: 'undo' }));
+  await button(true);
+  await button(false);
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(1);
+  // Held while writing: an eraser stroke, not a click.
+  await button(true);
+  await pen(page, line(300, 300, 600, 300), { buttons: 32 });
+  await button(false);
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(0);
+  // Pen ⇄ eraser.
+  await page.evaluate(() => (window as any).sumi.settings.update({ penButtonClick: 'eraser' }));
+  await button(true);
+  await button(false);
+  await expect(page.getByTestId('tool-eraser')).toHaveClass(/active/);
+  await button(true);
+  await button(false);
+  await expect(page.getByTestId('tool-pen')).toHaveClass(/active/);
+});
