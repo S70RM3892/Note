@@ -18,7 +18,8 @@ function closeTopLayer(): boolean {
 
 /** Hooks for the Android shell: back gesture, S Pen side button, files opened with the app. */
 export function installNativeGlue(app: App) {
-  if (!native) return;
+  const bridge = native;
+  if (!bridge) return;
   let importing = false;
   const takeIncoming = async () => {
     if (importing) return;
@@ -37,6 +38,17 @@ export function installNativeGlue(app: App) {
       importing = false;
     }
   };
+  // Chromium swallows touches that start with the side button held; the shell rewrites them
+  // (eraser → an eraser pointer, `buttons & 32`) and needs to know what the button is for.
+  let penAction = '';
+  const syncPenButton = () => {
+    const a = app.settings.get().sideButton;
+    if (a === penAction) return;
+    penAction = a;
+    bridge.setPenButtonAction?.(a);
+  };
+  syncPenButton();
+  app.settings.subscribe(syncPenButton);
   setNativeCallbacks({
     onPenButton: (down) => app.setPenButton(down),
     onBack: () => {

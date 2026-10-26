@@ -213,9 +213,16 @@ class MainActivity : ComponentActivity() {
 
     // ---------- S Pen side button ----------
 
+    val stylusFilter = StylusButtonFilter()
+
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         trackPenButton(ev)
-        return super.dispatchTouchEvent(ev)
+        val fixed = stylusFilter.filter(ev) ?: return super.dispatchTouchEvent(ev)
+        return try {
+            super.dispatchTouchEvent(fixed)
+        } finally {
+            fixed.recycle()
+        }
     }
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
@@ -224,15 +231,15 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Pointer events only report the side button while the pen touches the glass. Hover events
-     * carry it too, so the page learns about it before the pen lands and the very first
-     * stroke already uses the side-button tool.
+     * Tell the page whether the side button is held, from hover events too: it shows the
+     * matching cursor and, for the lasso action, picks the tool before the pen lands. (For
+     * the eraser the touch events themselves say so, see [StylusButtonFilter].)
      */
     private fun trackPenButton(ev: MotionEvent) {
         if (ev.pointerCount == 0) return
         val tool = ev.getToolType(0)
         if (tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) return
-        val down = ev.buttonState and (MotionEvent.BUTTON_STYLUS_PRIMARY or MotionEvent.BUTTON_SECONDARY) != 0
+        val down = ev.buttonState and StylusButtonFilter.SIDE_BUTTONS != 0
         if (down != penButton) {
             penButton = down
             callJs("onPenButton", down.toString())

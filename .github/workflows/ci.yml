@@ -109,7 +109,7 @@ jobs:
           SUMI_KEY_ALIAS: ${{ secrets.SUMI_KEY_ALIAS }}
           SUMI_KEY_PASSWORD: ${{ secrets.SUMI_KEY_PASSWORD }}
         run: |
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew testReleaseUnitTest assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/SumiNote.apk"
       - uses: actions/upload-artifact@v4
         with:

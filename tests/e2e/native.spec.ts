@@ -31,6 +31,7 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
       openUrl: () => {},
       setKeepScreenOn: () => {},
       takeIncoming: () => JSON.stringify(w.__incoming.splice(0)),
+      setPenButtonAction: (a: string) => (w.__penAction = a),
     };
   }, incoming);
 }
@@ -133,4 +134,34 @@ test('S Pen side button reported by Android (while hovering) switches the stroke
   await pen(page, line(300, 450, 800, 450));
   after = (await docInfo(page)).pages[0].strokes;
   expect(after).toHaveLength(3);
+});
+
+/** What Blink delivers for the APK's rewritten side-button strokes: a pen with the eraser bit. */
+async function eraserStroke(page: Page, pts: [number, number][]) {
+  await page.evaluate((pts) => {
+    const el = (window as any).sumi.editor.el as HTMLElement;
+    const ev = (type: string, [x, y]: [number, number], buttons: number, button: number) =>
+      el.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: 'pen', clientX: x, clientY: y, buttons, button, pressure: buttons ? 0.5 : 0, bubbles: true, isPrimary: true }));
+    ev('pointerdown', pts[0], 32, 5);
+    for (const p of pts.slice(1)) ev('pointermove', p, 32, -1);
+    ev('pointerup', pts[pts.length - 1], 0, 5);
+  }, pts);
+}
+
+test('side button in the APK: the page asks for the action and erases with eraser-typed pen strokes', async ({ page }) => {
+  await fakeBridge(page);
+  await newNotebook(page);
+  expect(await page.evaluate(() => (window as any).__penAction)).toBe('eraser');
+  await pen(page, line(300, 400, 800, 400));
+  const before = (await docInfo(page)).pages[0].strokes;
+  expect(before).toHaveLength(1);
+  await eraserStroke(page, line(550, 300, 550, 500).map(([x, y]) => [x, y] as [number, number]));
+  // Partial eraser: the line is cut in two, nothing new is drawn.
+  const after = (await docInfo(page)).pages[0].strokes;
+  expect(after).toHaveLength(2);
+  expect(after.every((s) => s.id !== before[0].id)).toBe(true);
+
+  // Changing the setting is passed on to the shell.
+  await page.evaluate(() => (window as any).sumi.settings.update({ sideButton: 'lasso' }));
+  expect(await page.evaluate(() => (window as any).__penAction)).toBe('lasso');
 });

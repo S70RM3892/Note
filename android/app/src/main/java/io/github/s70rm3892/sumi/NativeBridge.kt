@@ -63,4 +63,10 @@ class NativeBridge(private val activity: MainActivity) {
 
     @JavascriptInterface
     fun takeIncoming(): String = activity.takeIncoming()
+
+    /** The side button's action in the page's settings ("eraser" | "lasso" | "none"). */
+    @JavascriptInterface
+    fun setPenButtonAction(action: String) {
+        activity.stylusFilter.action = action
+    }
 }

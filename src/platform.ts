@@ -17,6 +17,8 @@ export interface SumiNativeBridge {
   setKeepScreenOn(on: boolean): void;
   /** Files opened/shared into the app since the last call: JSON [{url, name, mime}]. */
   takeIncoming(): string;
+  /** What the S Pen side button does ('eraser' | 'lasso' | 'none'); the shell rewrites the pen's touches to match. */
+  setPenButtonAction?(action: string): void;
 }
 
 export interface IncomingFile {
