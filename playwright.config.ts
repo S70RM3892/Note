@@ -8,7 +8,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: 'http://localhost:4174',
     // Galaxy Tab S11 in landscape: 2560x1600 panel at devicePixelRatio 2.
     viewport: { width: 1280, height: 800 },
     deviceScaleFactor: 2,
@@ -19,9 +19,9 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run build && npx vite preview --port 4173 --strictPort',
-    url: 'http://localhost:4173',
-    reuseExistingServer: !process.env.CI,
+    command: 'npm run build && npx vite preview --port 4174 --strictPort',
+    url: 'http://localhost:4174',
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

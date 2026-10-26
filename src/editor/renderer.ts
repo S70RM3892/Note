@@ -15,7 +15,8 @@ interface PageCache {
 }
 
 const CACHE_PIXEL_BUDGET = 72e6;
-const LEVELS = [0.125, 0.18, 0.25, 0.35, 0.5, 0.71, 1, 1.41, 2, 2.83, 4, 5.66, 8];
+// Quarter-octave steps: a cache is at most ~19% larger than needed.
+const LEVELS = Array.from({ length: 29 }, (_, k) => Math.round(Math.pow(2, (k - 12) / 4) * 1000) / 1000);
 
 function levelFor(target: number): number {
   for (const l of LEVELS) if (l >= target * 0.98) return l;
@@ -177,9 +178,10 @@ export class Renderer {
           w: Math.min(page.w, v.x + v.w - r.x) - Math.max(0, v.x - r.x) + 2,
           h: Math.min(page.h, v.y + v.h - r.y) - Math.max(0, v.y - r.y) + 2,
         };
+        const pdfRegion = page.pdf ? this.assets.pdfRegion(page.pdf.asset, page.pdf.index, target, clip, page, !this.gesture) : null;
         ctx.save();
         ctx.setTransform(z * dpr, 0, 0, z * dpr, sx, sy);
-        paintPage(ctx, page, { scale: target, clip, assets: this.assets, skip: this.hooks.skip(page.id), tapes: this.hooks.tapeMode() });
+        paintPage(ctx, page, { scale: target, clip, assets: this.assets, skip: this.hooks.skip(page.id), tapes: this.hooks.tapeMode(), pdfRegion });
         ctx.restore();
       } else {
         const level = Math.min(levelFor(target), cap);
@@ -198,7 +200,7 @@ export class Renderer {
           if (c.dirty) this.repaintRegion(page, c);
           c.used = now;
           ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
+          ctx.imageSmoothingQuality = this.gesture ? 'low' : 'medium';
           ctx.drawImage(c.canvas, sx, sy, sw, sh);
         } else {
           ctx.fillStyle = page.pdf ? '#ffffff' : page.bg.color;

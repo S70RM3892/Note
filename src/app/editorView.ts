@@ -62,7 +62,7 @@ export class EditorView implements View {
 
   private constructor(private app: App) {
     this.toolbar = h('div', { class: 'toolbar', role: 'toolbar' });
-    this.palette = h('div', { class: 'row', style: 'gap:0;flex:none' });
+    this.palette = h('div', { class: 'tb-palette' });
     this.stageWrap = h('div', { class: 'stage-wrap' });
     this.el = h('div', { class: 'editor-view' }, this.toolbar, this.stageWrap);
     this.editor = app.getEditor(this.stageWrap);
@@ -167,7 +167,7 @@ export class EditorView implements View {
       tb.append(b);
     }
     this.pasteBtn = this.btn('paste', '貼り付け', () => this.paste(), 'paste');
-    tb.append(this.pasteBtn, h('div', { class: 'tb-sep' }), this.palette, h('span', { class: 'spacer', style: 'min-width:8px' }));
+    tb.append(this.pasteBtn, h('div', { class: 'tb-sep tb-palette-sep' }), this.palette, h('span', { class: 'spacer', style: 'min-width:8px' }));
     this.pagePill = h('button', { class: 'tb-pill', onclick: () => this.overview(), 'data-testid': 'page-pill' });
     this.zoomPill = h('button', { class: 'tb-pill', onclick: () => this.editor.fitWidth(), title: '幅に合わせる' });
     this.sheetBtn = this.btn('eyeOff', '赤シート', () => this.toggleSheet(), 'red-sheet-btn');
@@ -612,8 +612,8 @@ export class EditorView implements View {
       if (nb && !nb.trashed && nb.pages.includes(rec.id)) {
         if (this.doc?.nb.id !== nb.id) await this.load(nb.id);
         const i = this.doc!.indexOf(rec.id);
-        this.editor.tapeMode = 'hide';
-        this.editor.renderer.invalidateAll();
+        // Every answer starts hidden.
+        this.editor.setAllTapes(true);
         this.editor.goToPage(i);
         this.renderReviewBar(rec, nb);
         return true;
@@ -643,8 +643,6 @@ export class EditorView implements View {
     const rec = r.queue[r.index];
     const next: ReviewRecord = { ...rec, state: grade(rec.state, n, Date.now()) };
     await this.app.repo.saveReview(next);
-    // Hide the tapes again for the next time this page comes up.
-    this.editor.setAllTapes(true);
     r.index++;
     if (!(await this.showReviewItem())) {
       toast(`今日の復習 ${r.queue.length}ページ完了。`, 2500);

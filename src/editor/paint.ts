@@ -2,7 +2,7 @@ import { rectsIntersect, strokeBounds, itemBounds } from '../core/geometry';
 import { isDarkColor, paintStroke } from '../core/ink';
 import { drawPaper } from '../core/paper';
 import type { ImageItem, Item, Page, Rect, TapeItem, TextItem } from '../core/types';
-import type { AssetCache } from './assets';
+import type { AssetCache, PdfRegion } from './assets';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -19,6 +19,8 @@ export interface PaintOptions {
   skip?: Set<string>;
   /** Tape display: 'normal' honours each tape, 'hide' forces hidden, 'omit' leaves tapes out. */
   tapes?: 'normal' | 'hide' | 'omit';
+  /** Sharp partial PDF rendering drawn over the page bitmap (deep zoom). */
+  pdfRegion?: PdfRegion | null;
 }
 
 const MAX_DIM = 4096;
@@ -150,6 +152,8 @@ export function paintPage(ctx: Ctx, page: Page, o: PaintOptions): boolean {
     const bm = o.assets?.pdfPage(page.pdf.asset, page.pdf.index, want);
     if (bm) ctx.drawImage(bm.canvas, 0, 0, page.w, page.h);
     if (!bm || bm.scale < want * 0.92) complete = false;
+    const rg = o.pdfRegion;
+    if (rg) ctx.drawImage(rg.canvas, rg.rect.x, rg.rect.y, rg.canvas.width / rg.scale, rg.canvas.height / rg.scale);
   } else {
     drawPaper(ctx, page.w, page.h, page.bg, o.scale);
   }

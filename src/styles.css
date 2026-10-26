@@ -1121,7 +1121,40 @@ select.input {
   gap: 10px;
 }
 
-@media (max-width: 720px) {
+.tb-palette {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+/* Portrait / split screen: the palette moves to a second row so actions stay visible. */
+@media (max-width: 1180px) {
+  .toolbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--tb-h);
+    padding-top: 4px;
+    padding-bottom: 4px;
+    overflow: visible;
+  }
+  .tb-palette {
+    order: 99;
+    flex-basis: 100%;
+    justify-content: center;
+    padding: 2px 0;
+    border-top: 1px solid var(--line);
+    margin-top: 4px;
+    overflow-x: auto;
+  }
+  .tb-palette:empty {
+    display: none;
+  }
+  .tb-palette-sep {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
   .tb-title {
     display: none;
   }

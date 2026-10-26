@@ -124,11 +124,12 @@ export class Editor {
       /* storage unavailable */
     }
 
-    this.unsubAssets = assets.subscribe((asset) => {
+    this.unsubAssets = assets.subscribe((asset, index) => {
       const doc = this.doc;
       if (!doc) return;
       for (const p of doc.pages) {
-        if (p.pdf?.asset === asset || p.items.some((i) => i.type === 'image' && i.asset === asset)) this.renderer.invalidate(p.id, null);
+        const pdfHit = p.pdf?.asset === asset && (index === undefined || p.pdf.index === index);
+        if (pdfHit || p.items.some((i) => i.type === 'image' && i.asset === asset)) this.renderer.invalidate(p.id, null);
       }
     });
 
@@ -677,8 +678,47 @@ export class Editor {
     this.emitSoon();
   }
 
+  /** Horizontal layout at "fit" zoom behaves like turning pages. */
+  private shouldSnap(): boolean {
+    return this.vp.layoutMode === 'horizontal' && this.vp.zoom <= this.vp.fitZoom() * 1.08;
+  }
+
+  private snapToPage(direction: number) {
+    const cur = this.vp.currentPage();
+    const r0 = this.vp.rects[cur];
+    if (!r0) return;
+    const centre = this.vp.camX + this.vp.width / this.vp.zoom / 2;
+    let target = cur;
+    if (direction > 0.3 && centre > r0.x + r0.w / 2 - 1) target = Math.min(this.vp.rects.length - 1, cur + 1);
+    else if (direction < -0.3 && centre < r0.x + r0.w / 2 + 1) target = Math.max(0, cur - 1);
+    const r = this.vp.rects[target];
+    const from = this.vp.camX;
+    const to = r.x + r.w / 2 - this.vp.width / this.vp.zoom / 2;
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / 220);
+      const e = 1 - Math.pow(1 - k, 3);
+      this.vp.camX = from + (to - from) * e;
+      this.renderer.request();
+      if (k < 1) this.momentumRaf = requestAnimationFrame(step);
+      else {
+        this.momentumRaf = 0;
+        this.renderer.gesture = false;
+        this.renderer.request();
+        this.emitSoon();
+      }
+    };
+    this.renderer.gesture = true;
+    this.momentumRaf = requestAnimationFrame(step);
+  }
+
   private startMomentum() {
     let { x: vx, y: vy } = this.velocity;
+    if (this.shouldSnap()) {
+      const fresh = performance.now() - this.panLast.t < 80;
+      this.snapToPage(fresh ? -vx : 0);
+      return;
+    }
     if (performance.now() - this.panLast.t > 80 || Math.hypot(vx, vy) < 0.15) {
       this.renderer.gesture = false;
       this.renderer.request();

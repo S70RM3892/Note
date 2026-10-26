@@ -110,12 +110,18 @@ export class Viewport {
     const b = this.bounds;
     const vw = this.width / this.zoom, vh = this.height / this.zoom;
     const margin = 60 / this.zoom;
-    if (b.w <= vw) this.camX = b.x + b.w / 2 - vw / 2;
-    else this.camX = clamp(this.camX, b.x - margin, b.x + b.w + margin - vw);
-    if (this.layoutMode === 'horizontal' && b.h <= vh) this.camY = b.y + b.h / 2 - vh / 2;
-    else {
-      const extra = this.layoutMode === 'vertical' ? vh * 0.4 : margin;
-      this.camY = clamp(this.camY, b.y - margin, Math.max(b.y - margin, b.y + b.h + extra - vh));
+    if (this.layoutMode === 'vertical') {
+      if (b.w <= vw) this.camX = b.x + b.w / 2 - vw / 2;
+      else this.camX = clamp(this.camX, b.x - margin, b.x + b.w + margin - vw);
+      this.camY = clamp(this.camY, b.y - margin, Math.max(b.y - margin, b.y + b.h + vh * 0.4 - vh));
+    } else {
+      // Every page (including the first and last) can be centred.
+      const first = this.rects[0], last = this.rects[this.rects.length - 1];
+      const lo = Math.min(b.x - margin, first ? first.x + first.w / 2 - vw / 2 : b.x);
+      const hi = Math.max(b.x + b.w + margin - vw, last ? last.x + last.w / 2 - vw / 2 : b.x);
+      this.camX = clamp(this.camX, lo, Math.max(lo, hi));
+      if (b.h <= vh) this.camY = b.y + b.h / 2 - vh / 2;
+      else this.camY = clamp(this.camY, b.y - margin, b.y + b.h + margin - vh);
     }
   }
 

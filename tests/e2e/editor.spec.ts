@@ -216,3 +216,26 @@ test.describe('pages', () => {
     expect((await docInfo(page)).pages[2].strokes.length).toBe(1);
   });
 });
+
+test('horizontal layout turns pages with a swipe', async ({ page }) => {
+  await newNotebook(page);
+  await page.getByTestId('add-page').click();
+  await page.getByTestId('add-page').click();
+  await page.evaluate(() => (window as any).sumi.view.toggleLayout());
+  await page.waitForTimeout(300);
+  expect((await docInfo(page)).current).toBe(2);
+  // Quick swipe to the right → previous page.
+  await touch(page, [[[400, 500]], [[480, 500]], [[560, 500]], [[640, 500]]]);
+  await page.waitForTimeout(500);
+  expect((await docInfo(page)).current).toBe(1);
+  // Slow small drag → snaps back to the same page.
+  await touch(page, [[[600, 500]], [[590, 500]], [[580, 500]]]);
+  await page.waitForTimeout(500);
+  expect((await docInfo(page)).current).toBe(1);
+  const camX = await page.evaluate(() => {
+    const vp = (window as any).sumi.editor.vp;
+    const r = vp.rects[1];
+    return Math.abs(vp.camX - (r.x + r.w / 2 - vp.width / vp.zoom / 2));
+  });
+  expect(camX).toBeLessThan(1);
+});
