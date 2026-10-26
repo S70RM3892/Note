@@ -307,7 +307,7 @@ test('low-latency wet ink: the page tells the shell where the pen draws and hand
   const lastParams = () => page.evaluate(() => (window as any).__wet.at(-1));
   let p = await lastParams();
   expect(p.on).toBe(true);
-  expect(p.style).toBe('ballpoint');
+  expect(p.style).toBe('marker'); // the liner
   expect(p.dpr).toBe(2);
   const rect = await page.evaluate(() => {
     const r = (window as any).sumi.editor.el.getBoundingClientRect();

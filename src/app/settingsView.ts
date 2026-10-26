@@ -167,7 +167,6 @@ export function openSettings(app: App) {
     'div',
     null,
     h('h3', null, 'ペン'),
-    slider('筆圧の効き', 0.4, 1.4, 0.05, s.pressureGamma, (v) => (v < 0.75 ? '軽いタッチで太く' : v > 1.05 ? '強く押して太く' : '標準'), (v) => set({ pressureGamma: v })),
     slider('手ぶれ補正', 0, 0.8, 0.05, s.stabilization, (v) => (v === 0 ? 'オフ（最速）' : `${Math.round(v * 100)}%`), (v) => set({ stabilization: v })),
     h(
       'div',

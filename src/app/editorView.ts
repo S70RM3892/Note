@@ -467,17 +467,7 @@ export class EditorView implements View {
     if (t === 'pen' || t === 'highlighter') wrap.append(this.strokePreview(t));
     if (t === 'pen') {
       wrap.append(
-        h('h4', null, 'ペンの種類'),
-        chipGroup(
-          [
-            { id: 'ballpoint', label: 'ボールペン' },
-            { id: 'fountain', label: '万年筆' },
-            { id: 'marker', label: 'サインペン' },
-            { id: 'pencil', label: '鉛筆' },
-          ],
-          s.pen.style,
-          (v) => set({ pen: { ...st.get().pen, style: v as Settings['pen']['style'] } }),
-        ),
+        h('p', { class: 'muted', style: 'font-size:12px;margin:4px 0 0' }, 'ライナー：筆圧に関係なく太さが均一'),
         h('h4', null, '太さ'),
         slider(0.4, 12, 0.1, s.pen.width, (v) => set({ pen: { ...st.get().pen, width: v } })),
         h('h4', null, '色'),

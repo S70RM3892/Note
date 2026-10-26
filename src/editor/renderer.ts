@@ -184,7 +184,11 @@ export class Renderer {
         paintPage(ctx, page, { scale: target, clip, assets: this.assets, skip: this.hooks.skip(page.id), tapes: this.hooks.tapeMode(), pdfRegion });
         ctx.restore();
       } else {
-        const level = Math.min(levelFor(target), cap);
+        // At rest the cache is built at exactly the screen's scale and drawn 1:1 on whole pixels, so
+        // ink looks just as sharp and thick as it did while it was being written (a scaled bitmap
+        // made a freshly committed stroke look softer — a visible change the moment the pen lifts).
+        // During a gesture, a nearby quarter-octave level avoids rebuilding on every frame.
+        const level = Math.min(this.gesture ? levelFor(target) : target, cap);
         let c = this.caches.get(page.id);
         const wrongScale = !!c && Math.abs(c.scale - level) > 1e-3;
         let build = false;
@@ -199,9 +203,13 @@ export class Renderer {
         if (c) {
           if (c.dirty) this.repaintRegion(page, c);
           c.used = now;
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = this.gesture ? 'low' : 'medium';
-          ctx.drawImage(c.canvas, sx, sy, sw, sh);
+          if (Math.abs(c.scale - target) <= target * 1e-6) {
+            ctx.drawImage(c.canvas, Math.round(sx), Math.round(sy));
+          } else {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = this.gesture ? 'low' : 'medium';
+            ctx.drawImage(c.canvas, sx, sy, sw, sh);
+          }
         } else {
           ctx.fillStyle = page.pdf ? '#ffffff' : page.bg.color;
           ctx.fillRect(sx, sy, sw, sh);

@@ -20,7 +20,7 @@ test.describe('ink', () => {
     expect(errors).toEqual([]);
   });
 
-  for (const style of ['ballpoint', 'pencil'] as const) {
+  for (const style of ['marker'] as const) {
     test(`live ink is continuous while the pen is down (${style})`, async ({ page }) => {
       await newNotebook(page);
       await page.evaluate((st) => (window as any).sumi.settings.update({ pen: { style: st, color: '#222222', width: 3 } }), style);
@@ -452,15 +452,13 @@ test('固定: locked objects ignore the lasso and the eraser; tap offers unlock;
 
 test('お気に入りペン: save the current pen, switch back to it in one tap, remove it', async ({ page }) => {
   await newNotebook(page);
-  await page.getByTestId('tool-pen').click(); // already selected: opens the pen options
-  await page.getByText('万年筆', { exact: true }).click();
-  await page.keyboard.press('Escape');
-  await page.mouse.click(1200, 700);
+  // A thick red liner.
+  await page.evaluate(() => (window as any).sumi.settings.update({ pen: { ...(window as any).sumi.settings.get().pen, width: 4 } }));
   await page.locator('[data-testid="color"]').nth(2).click(); // red
   await page.getByTestId('pen-fav-add').click();
   const s1 = await page.evaluate(() => (window as any).sumi.settings.get());
   expect(s1.penFavorites).toEqual([{ ...s1.pen }]);
-  expect(s1.penFavorites[0].style).toBe('fountain');
+  expect(s1.penFavorites[0]).toMatchObject({ style: 'marker', width: 4 });
   await expect(page.getByTestId('pen-fav-add')).toBeHidden(); // the current pen is already a favourite
   // Change pen, then one tap brings the favourite back.
   await page.locator('[data-testid="color"]').nth(0).click();

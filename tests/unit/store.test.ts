@@ -173,3 +173,14 @@ describe('ページをほかのノートへ', () => {
     expect(await repo.copyPagesTo('nope', [src])).toBeNull();
   });
 });
+
+describe('ライナー', () => {
+  it('the pen is a uniform-width liner, also for settings and favourites saved before', async () => {
+    const { mergeSettings } = await import('../../src/store/settings');
+    const s = mergeSettings({ pen: { style: 'fountain', color: '#123456', width: 3 }, penFavorites: [{ style: 'pencil', color: '#ff0000', width: 1.2 }] });
+    expect(s.pen).toEqual({ style: 'marker', color: '#123456', width: 3 });
+    expect(s.penFavorites.map((f) => f.style)).toEqual(['marker']);
+    const { radiusFor } = await import('../../src/core/ink');
+    expect(radiusFor('pen', 'marker', 2, 0.05)).toBe(radiusFor('pen', 'marker', 2, 1));
+  });
+});

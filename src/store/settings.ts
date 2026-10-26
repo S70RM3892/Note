@@ -76,7 +76,7 @@ export const RED_SHEET_ORANGE = '#ff6a00';
 export const MEMORY_GREEN = '#00c853';
 
 export const DEFAULT_SETTINGS: Settings = {
-  pen: { style: 'ballpoint', color: '#1a1a1a', width: 2.2 },
+  pen: { style: 'marker', color: '#1a1a1a', width: 2 },
   penFavorites: [],
   highlighter: { color: '#fff176', width: 16 },
   highlighterStraight: false,
@@ -147,7 +147,9 @@ export class SettingsStore {
 
 export function mergeSettings(initial: Partial<Settings> | undefined): Settings {
   const s = { ...DEFAULT_SETTINGS, ...(initial ?? {}) };
-  s.pen = { ...DEFAULT_SETTINGS.pen, ...(initial?.pen ?? {}) };
+  // The pen is a uniform-width liner (the old pressure pens are gone; strokes made with them stay as they are).
+  s.pen = { ...DEFAULT_SETTINGS.pen, ...(initial?.pen ?? {}), style: 'marker' };
+  s.penFavorites = (s.penFavorites ?? []).map((f) => ({ ...f, style: 'marker' as const }));
   s.highlighter = { ...DEFAULT_SETTINGS.highlighter, ...(initial?.highlighter ?? {}) };
   s.defaultPaper = { ...DEFAULT_SETTINGS.defaultPaper, ...(initial?.defaultPaper ?? {}) };
   return s;

@@ -125,3 +125,24 @@ test('fast writing: every stroke lands as written; a long stroke stays whole', a
   expect(long.w * z).toBeGreaterThan(990);
   expect(long.n).toBeGreaterThan(800);
 });
+
+test('ink at rest is drawn at exactly screen scale; the pen is a uniform liner', async ({ page }) => {
+  await newNotebook(page);
+  // Pressure swings from light to heavy: the line stays one width.
+  await pen(page, Array.from({ length: 40 }, (_, i) => [300 + i * 10, 400 + 20 * Math.sin(i / 5), 0.1 + (i % 10) / 10] as P));
+  const s = await page.evaluate(() => {
+    const st = (window as any).sumi.view.doc.pages[0].strokes[0];
+    return { style: st.style, width: st.width };
+  });
+  expect(s.style).toBe('marker');
+  // The page's bitmap is built at zoom × devicePixelRatio, not a nearby level that gets rescaled.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const ed = (window as any).sumi.editor;
+        const c = ed.renderer.caches.get(ed.doc.pages[0].id);
+        return c ? Math.abs(c.scale - ed.vp.zoom * ed.vp.dpr) : 1;
+      }),
+    )
+    .toBeLessThan(1e-6);
+});
