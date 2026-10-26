@@ -31,3 +31,11 @@ describe('search', () => {
     expect(h2.map((h) => h.page)).toEqual([1]);
   });
 });
+
+describe('handwriting', () => {
+  it('search finds recognized handwriting', () => {
+    const a = nb('a', ['p1']);
+    const hits = searchPages([page('p1', 'a', { ink: '微分係数の定義\nf(x+h)-f(x)' })], new Map([['a', a]]), '微分係数');
+    expect(hits.map((h) => h.kind)).toEqual(['ink']);
+  });
+});

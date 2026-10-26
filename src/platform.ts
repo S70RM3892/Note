@@ -19,6 +19,12 @@ export interface SumiNativeBridge {
   takeIncoming(): string;
   /** What the S Pen side button does ('eraser' | 'lasso' | 'none'); the shell rewrites the pen's touches to match. */
   setPenButtonAction?(action: string): void;
+  /** Handwriting recognition (ML Kit Digital Ink, Japanese): 'ready' | 'missing' | 'downloading' | 'unsupported'. */
+  inkStatus?(): string;
+  /** Download the recognition model; result via onInkModel(json {ok, error?}). */
+  inkDownload?(): void;
+  /** Recognize one line: json {id, strokes: [[x,y,t,…],…], w, h, pre}; result via onInk(json {id, candidates?, error?}). */
+  recognizeInk?(json: string): void;
 }
 
 export interface IncomingFile {
@@ -35,6 +41,8 @@ interface NativeCallbacks {
   onBack?: () => boolean;
   /** New files are waiting in takeIncoming(). */
   onIncoming?: () => void;
+  onInk?: (json: string) => void;
+  onInkModel?: (json: string) => void;
 }
 
 declare global {
@@ -126,3 +134,52 @@ export async function nativeIncoming(): Promise<File[]> {
   }
   return out;
 }
+
+export type InkStatus = 'ready' | 'missing' | 'downloading' | 'unsupported';
+
+/** On-device handwriting recognition, available in the APK only. */
+export const nativeInk = {
+  available(): boolean {
+    return !!native?.recognizeInk;
+  },
+  status(): InkStatus {
+    const s = native?.inkStatus?.();
+    return s === 'ready' || s === 'missing' || s === 'downloading' ? s : 'unsupported';
+  },
+  /** Download the model (≈20 MB, once). */
+  download(): Promise<void> {
+    const bridge = native;
+    if (!bridge?.inkDownload) return Promise.reject(new Error('この環境では使えない'));
+    return new Promise((resolve, reject) => {
+      callbacks().onInkModel = (json: string) => {
+        callbacks().onInkModel = undefined;
+        const r = JSON.parse(json) as { ok: boolean; error?: string };
+        if (r.ok) resolve();
+        else reject(new Error(r.error || 'ダウンロードできなかった'));
+      };
+      bridge.inkDownload!();
+    });
+  },
+  /** Candidates for one line of handwriting, best first. */
+  recognize(strokes: number[][], w: number, h: number, pre = ''): Promise<string[]> {
+    const bridge = native;
+    if (!bridge?.recognizeInk) return Promise.reject(new Error('この環境では使えない'));
+    const id = String(++inkSeq);
+    return new Promise((resolve, reject) => {
+      inkWaiting.set(id, { resolve, reject });
+      const cb = callbacks();
+      cb.onInk ??= (json: string) => {
+        const r = JSON.parse(json) as { id: string; candidates?: string[]; error?: string };
+        const p = inkWaiting.get(r.id);
+        if (!p) return;
+        inkWaiting.delete(r.id);
+        if (r.error) p.reject(new Error(r.error));
+        else p.resolve(r.candidates ?? []);
+      };
+      bridge.recognizeInk!(JSON.stringify({ id, strokes, w, h, pre: pre.slice(-20) }));
+    });
+  },
+};
+
+let inkSeq = 0;
+const inkWaiting = new Map<string, { resolve: (c: string[]) => void; reject: (e: Error) => void }>();

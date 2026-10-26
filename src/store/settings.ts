@@ -37,6 +37,8 @@ export interface Settings {
   lastBackup: number;
   /** Countdown targets shown in the library. */
   exams: ExamDate[];
+  /** APK: read handwriting in the background so the search finds it. */
+  handwritingIndex: boolean;
   // Notebook defaults
   defaultPaper: { size: string; tpl: string; spacing: number; color: string };
 }
@@ -69,6 +71,7 @@ export const DEFAULT_SETTINGS: Settings = {
   backupReminderDays: 7,
   lastBackup: 0,
   exams: DEFAULT_EXAMS,
+  handwritingIndex: true,
   defaultPaper: { size: 'a4', tpl: 'grid', spacing: 5, color: '#ffffff' },
 };
 

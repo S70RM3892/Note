@@ -32,6 +32,15 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
       setKeepScreenOn: () => {},
       takeIncoming: () => JSON.stringify(w.__incoming.splice(0)),
       setPenButtonAction: (a: string) => (w.__penAction = a),
+      // Fake recognizer: names a line by its stroke count ("3画") so tests can check the plumbing.
+      inkStatus: () => w.__inkStatus ?? 'ready',
+      inkDownload: () => setTimeout(() => ((w.__inkStatus = 'ready'), w.__sumiNative.onInkModel(JSON.stringify({ ok: true }))), 20),
+      recognizeInk: (json: string) => {
+        const r = JSON.parse(json);
+        w.__inkCalls = (w.__inkCalls ?? 0) + 1;
+        const n = r.strokes.length;
+        setTimeout(() => w.__sumiNative.onInk(JSON.stringify({ id: r.id, candidates: [`${n}画のことば`, `${n}かく`] })), 5);
+      },
     };
   }, incoming);
 }
@@ -164,4 +173,55 @@ test('side button in the APK: the page asks for the action and erases with erase
   // Changing the setting is passed on to the shell.
   await page.evaluate(() => (window as any).sumi.settings.update({ sideButton: 'lasso' }));
   expect(await page.evaluate(() => (window as any).__penAction)).toBe('lasso');
+});
+
+test('handwriting: read in the background for search, and lasso → テキストに変換', async ({ page }) => {
+  test.setTimeout(60_000);
+  await fakeBridge(page);
+  await newNotebook(page, '手書き');
+  // Two lines: three "characters", then two.
+  for (const x of [300, 340, 380]) await pen(page, line(x, 300, x + 25, 330, 6));
+  for (const x of [300, 340]) await pen(page, line(x, 420, x + 25, 450, 6));
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(5);
+
+  // Library: the background reader stores the text, the search finds it.
+  await page.getByTestId('back').click();
+  await expect
+    .poll(() => page.evaluate(async () => ((await (window as any).sumi.repo.db.getAll('pages')) as any[]).map((p) => p.ink).join('|')), { timeout: 15000 })
+    .toBe('3画のことば\n2画のことば');
+  await page.getByPlaceholder('ノートを検索').fill('3画のこと');
+  const hit = page.getByTestId('search-results').locator('.search-hit');
+  await expect(hit).toHaveCount(1);
+  await expect(hit).toContainText('手書き');
+  // Nothing changed → nothing is read again.
+  const calls = await page.evaluate(() => (window as any).__inkCalls);
+  await page.reload();
+  await page.waitForTimeout(2500);
+  expect(await page.evaluate(() => (window as any).__inkCalls ?? 0)).toBe(0);
+  expect(calls).toBe(2);
+
+  // Convert the first line to text.
+  await page.getByText('手書き', { exact: true }).first().click();
+  await page.waitForFunction(() => (window as any).sumi?.view?.doc?.pages?.[0]?.strokes?.length === 5);
+  await page.getByTestId('tool-lasso').click();
+  await pen(page, [
+    [280, 280],
+    [440, 280],
+    [440, 350],
+    [280, 350],
+    [280, 282],
+  ]);
+  await page.getByTestId('sel-ocr').click();
+  await expect(page.getByTestId('ocr-text')).toHaveValue('3画のことば');
+  await page.getByText('3かく', { exact: true }).click();
+  await expect(page.getByTestId('ocr-text')).toHaveValue('3かく');
+  await page.getByTestId('ocr-replace').click();
+  let info = await docInfo(page);
+  expect(info.pages[0].strokes).toHaveLength(2);
+  expect(info.pages[0].items.map((i) => [i.type, i.text])).toEqual([['text', '3かく']]);
+  await page.screenshot({ path: 'test-results/ocr-replaced.png' });
+  await page.getByTestId('undo').click();
+  info = await docInfo(page);
+  expect(info.pages[0].strokes).toHaveLength(5);
+  expect(info.pages[0].items).toHaveLength(0);
 });

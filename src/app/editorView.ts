@@ -1,6 +1,6 @@
 import { uid } from '../core/id';
 import { grade, newReview, nextInterval, formatInterval, type Grade } from '../core/srs';
-import type { Item, Notebook, Page, PageBackground, Pt, Rect, ReviewRecord, TapeItem } from '../core/types';
+import type { Item, Notebook, Page, PageBackground, Pt, Rect, ReviewRecord, TapeItem, TextItem } from '../core/types';
 import { EditorDoc } from '../editor/doc';
 import type { Editor } from '../editor/editor';
 import { hasClipboard } from '../editor/selection';
@@ -13,10 +13,14 @@ import { paintStroke } from '../core/ink';
 import type { Stroke } from '../core/types';
 import { RedSheet } from '../study/redsheet';
 import { h } from '../ui/dom';
-import { menu, modal, pickFiles, popover, promptDialog, safeFileName, shareOrDownload, toast } from '../ui/dialogs';
+import { confirmDialog, menu, modal, pickFiles, popover, promptDialog, safeFileName, shareOrDownload, toast } from '../ui/dialogs';
 import { icon, type IconName } from '../ui/icons';
 import type { App, View } from './app';
 import { copyRegionAsImage, padRect, sendToMistakes } from './capture';
+import { writingStrokes } from '../ink/lines';
+import { recognizeStrokes, type RecognizedLine } from '../ink/recognize';
+import { nativeInk } from '../platform';
+import { LINE_HEIGHT } from '../editor/paint';
 import { exportNotebookPdfDialog } from './exportDialog';
 import { imageItem } from './importers';
 import { chipGroup, paperFields, swatchGroup } from './newNotebook';
@@ -25,6 +29,11 @@ import { RefPane } from './refPane';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { openSettings } from './settingsView';
+
+function median(v: number[]): number {
+  const s = [...v].sort((a, b) => a - b);
+  return s.length ? s[s.length >> 1] : 0;
+}
 
 const TOOLS: { id: ToolName; icon: IconName; label: string; key: string }[] = [
   { id: 'pen', icon: 'pen', label: 'ペン', key: 'p' },
@@ -523,6 +532,81 @@ export class EditorView implements View {
       b('lock', '固定', () => (sel.lock(), toast('固定した。投げ縄・消しゴムで動かない')), 'sel-lock'),
       b('brain', 'まちがいノートへ', () => void this.selectionToMistakes(), 'sel-mistake'),
     );
+    if (nativeInk.available()) this.selMenu.append(b('text', 'テキストに変換', () => void this.convertToText(), 'sel-ocr'));
+  }
+
+  /** 手書き → テキスト (APK): read the selected handwriting, let the user fix it, then replace or copy. */
+  private async convertToText() {
+    const sel = this.editor.selection;
+    const doc = this.doc;
+    const page = sel.active && doc ? doc.page(sel.pageId!) : undefined;
+    if (!doc || !page) return;
+    const strokes = writingStrokes(page.strokes.filter((s) => sel.ids.has(s.id)));
+    if (!strokes.length) return toast('手書きの線を選んでから');
+    if (nativeInk.status() !== 'ready') {
+      if (!(await confirmDialog('手書き文字認識', '日本語の認識モデル（約20MB）を1回だけダウンロードする。以後は端末内で動く。', 'ダウンロード'))) return;
+      toast('ダウンロード中…', 20000);
+      try {
+        await nativeInk.download();
+      } catch (e) {
+        return toast('ダウンロードできなかった: ' + (e as Error).message, 3000);
+      }
+    }
+    toast('読み取り中…', 8000);
+    let lines: RecognizedLine[];
+    try {
+      lines = await recognizeStrokes(strokes);
+    } catch (e) {
+      return toast('読み取れなかった: ' + (e as Error).message, 3000);
+    }
+    toast('', 1);
+    const area = h('textarea', { class: 'input ocr-text', rows: Math.min(10, Math.max(3, lines.length + 1)), 'data-testid': 'ocr-text' }) as HTMLTextAreaElement;
+    area.value = lines.map((l) => l.text).join('\n');
+    // Other readings of each line, one tap to use instead.
+    const alts = h(
+      'div',
+      { class: 'ocr-alts' },
+      lines.map((l, i) =>
+        l.candidates.length > 1
+          ? h(
+              'div',
+              { class: 'chips' },
+              l.candidates.slice(1, 5).map((c) =>
+                h('button', {
+                  class: 'chip',
+                  onclick: () => {
+                    const rows = area.value.split('\n');
+                    rows[i] = c;
+                    area.value = rows.join('\n');
+                  },
+                }, c),
+              ),
+            )
+          : null,
+      ),
+    );
+    const ids = new Set(strokes.map((s) => s.id));
+    const box = { ...sel.bounds };
+    const replace = () => {
+      const text = area.value.trim();
+      m.close();
+      if (!text) return;
+      const before = doc.content(page.id);
+      const size = Math.min(48, Math.max(11, median(lines.map((l) => l.box.h)) * 0.75));
+      const n = text.split('\n').length;
+      const item: TextItem = { id: uid(), type: 'text', x: box.x, y: box.y, w: Math.max(box.w, size * 4), h: n * size * LINE_HEIGHT, rot: 0, text, size, color: strokes[0].color };
+      sel.clear();
+      doc.commit([{ pageId: page.id, before, after: { strokes: before.strokes.filter((s) => !ids.has(s.id)), items: [...before.items, item] } }]);
+      toast('テキストに置き換えた（元に戻すで手書きに戻る）');
+    };
+    const m = modal('テキストに変換', h('div', null, area, alts, h('p', { class: 'muted', style: 'font-size:12px' }, '直してから選ぶ。候補をタップするとその行を差し替える。')), {
+      actions: [
+        h('button', { class: 'btn', onclick: () => m.close() }, 'キャンセル'),
+        h('button', { class: 'btn', onclick: () => void navigator.clipboard?.writeText(area.value).then(() => toast('コピーした')), 'data-testid': 'ocr-copy' }, 'コピー'),
+        h('button', { class: 'btn primary', onclick: replace, 'data-testid': 'ocr-replace' }, '置き換え'),
+      ],
+    });
+    area.focus();
   }
 
   /** Screen corners of the lassoed empty area, if any. */

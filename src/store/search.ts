@@ -5,7 +5,7 @@ export interface SearchHit {
   nb: Notebook;
   page: number; // index in the notebook
   snippet: string;
-  kind: 'text' | 'pdf';
+  kind: 'text' | 'pdf' | 'ink';
 }
 
 /** Width/case-insensitive form (全角/半角, カナ variants via NFKC). */
@@ -19,7 +19,7 @@ function snippetAround(text: string, at: number, len: number): string {
   return (start > 0 ? '…' : '') + text.slice(start, end).replace(/\s+/g, ' ') + (end < text.length ? '…' : '');
 }
 
-/** Find a query in typed text and PDF text of every live notebook. */
+/** Find a query in typed text, PDF text and recognized handwriting of every live notebook. */
 export function searchPages(pages: Page[], notebooks: Map<string, Notebook>, query: string, limit = 80): SearchHit[] {
   const q = normalize(query.trim());
   if (!q) return [];
@@ -32,6 +32,7 @@ export function searchPages(pages: Page[], notebooks: Map<string, Notebook>, que
     const sources: [string, SearchHit['kind']][] = [];
     for (const it of p.items) if (it.type === 'text') sources.push([it.text, 'text']);
     if (p.text) sources.push([p.text, 'pdf']);
+    if (p.ink) sources.push([p.ink, 'ink']);
     for (const [raw, kind] of sources) {
       const at = normalize(raw).indexOf(q);
       if (at >= 0) {

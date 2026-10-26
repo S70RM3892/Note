@@ -101,6 +101,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         cleanOldFiles()
+        ink = InkRecognizer(this) // starts checking whether the handwriting model is already there
 
         assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
@@ -214,6 +215,7 @@ class MainActivity : ComponentActivity() {
     // ---------- S Pen side button ----------
 
     val stylusFilter = StylusButtonFilter()
+    lateinit var ink: InkRecognizer
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         trackPenButton(ev)

@@ -100,6 +100,9 @@ export interface Page {
   pdf?: { asset: string; index: number };
   /** Text extracted from the PDF page (for search). */
   text?: string;
+  /** Handwriting recognized on this page (for search), and which strokes it was read from. */
+  ink?: string;
+  inkSig?: string;
   strokes: Stroke[];
   items: Item[];
   updated: number;

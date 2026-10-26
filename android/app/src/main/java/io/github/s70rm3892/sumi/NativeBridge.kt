@@ -64,6 +64,15 @@ class NativeBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun takeIncoming(): String = activity.takeIncoming()
 
+    @JavascriptInterface
+    fun inkStatus(): String = activity.ink.status
+
+    @JavascriptInterface
+    fun inkDownload() = activity.runOnUiThread { activity.ink.download() }
+
+    @JavascriptInterface
+    fun recognizeInk(json: String) = activity.runOnUiThread { activity.ink.recognize(json) }
+
     /** The side button's action in the page's settings ("eraser" | "lasso" | "none"). */
     @JavascriptInterface
     fun setPenButtonAction(action: String) {

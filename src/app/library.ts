@@ -15,6 +15,7 @@ import { exportNotebookPdfDialog } from './exportDialog';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { formatExamDate, upcomingExams } from '../study/countdown';
+import { indexHandwriting } from '../ink/recognize';
 
 type FolderFilter = 'all' | 'fav' | string;
 
@@ -31,6 +32,8 @@ export class LibraryView implements View {
   private filter: FolderFilter = 'all';
   private query = '';
   private unsub: () => void;
+  /** Stops the background handwriting reader when the library closes. */
+  private inkAbort = new AbortController();
 
   constructor(private app: App) {
     try {
@@ -75,6 +78,7 @@ export class LibraryView implements View {
 
   destroy() {
     this.unsub();
+    this.inkAbort.abort();
   }
 
   private async load() {
@@ -83,7 +87,14 @@ export class LibraryView implements View {
     this.renderFolders();
     this.renderGrid();
     await this.renderStrip();
+    // APK: read new handwriting while the library is open (the editor isn't writing pages then).
+    if (this.app.settings.get().handwritingIndex) {
+      setTimeout(() => {
+        if (!this.inkAbort.signal.aborted) void indexHandwriting(this.app.repo, this.inkAbort.signal);
+      }, 1500);
+    }
   }
+
 
   /** Full-text search over typed text and imported PDF text. */
   private async searchContent() {
@@ -100,7 +111,7 @@ export class LibraryView implements View {
         h(
           'button',
           { class: 'search-hit', onclick: () => this.app.go(`#/nb/${hit.nb.id}/${hit.page}`) },
-          h('span', { class: 'badge' }, hit.kind === 'pdf' ? 'PDF' : '文字'),
+          h('span', { class: 'badge' }, hit.kind === 'pdf' ? 'PDF' : hit.kind === 'ink' ? '手書き' : '文字'),
           h('b', null, `${hit.nb.title} p.${hit.page + 1}`),
           h('span', { class: 'muted' }, hit.snippet),
         ),

@@ -1,7 +1,8 @@
 import type { Settings } from '../store/settings';
 import type { ExamDate } from '../study/countdown';
+import { nativeInk } from '../platform';
 import { h } from '../ui/dom';
-import { modal } from '../ui/dialogs';
+import { modal, toast } from '../ui/dialogs';
 import type { App } from './app';
 import { chipGroup } from './newNotebook';
 
@@ -25,6 +26,35 @@ function slider(label: string, min: number, max: number, step: number, value: nu
     },
   });
   return h('div', { class: 'field' }, h('div', { class: 'row' }, h('span', { class: 'field-label', style: 'margin:0' }, label), h('span', { class: 'spacer' }), out), input);
+}
+
+/** APK only: the Japanese handwriting model and background reading for search. */
+function inkSection(s: Settings, set: (p: Partial<Settings>) => void): HTMLElement[] {
+  const status = h('div', { class: 'muted', style: 'font-size:13px', 'data-testid': 'ink-status' });
+  const btn = h('button', { class: 'btn small', 'data-testid': 'ink-download' }, 'ダウンロード（約20MB）');
+  const render = () => {
+    const st = nativeInk.status();
+    status.textContent = st === 'ready' ? '日本語モデル：準備OK（端末内で認識。ネット不要）' : st === 'downloading' ? 'ダウンロード中…' : '日本語モデルが未ダウンロード（最初に1回だけ必要）';
+    btn.hidden = st === 'ready';
+    btn.disabled = st === 'downloading';
+  };
+  btn.onclick = async () => {
+    btn.disabled = true;
+    status.textContent = 'ダウンロード中…';
+    try {
+      await nativeInk.download();
+      toast('手書き文字認識が使えるようになった');
+    } catch (e) {
+      toast('ダウンロードできなかった: ' + (e as Error).message, 3000);
+    }
+    render();
+  };
+  render();
+  return [
+    h('h3', null, '手書き文字認識'),
+    h('div', { class: 'toggle-row' }, status, btn),
+    toggle('手書きも検索できるようにする', 'ライブラリを開いている間に、書いたページを少しずつ読み取る', s.handwritingIndex, (v) => set({ handwritingIndex: v })),
+  ];
 }
 
 function examEditor(initial: ExamDate[], on: (v: ExamDate[]) => void): HTMLElement {
@@ -99,6 +129,7 @@ export function openSettings(app: App) {
     toggle('ペンを止めて図形補正', '書き終わりで0.45秒止めると直線・円・四角に補正', s.shapeHold, (v) => set({ shapeHold: v })),
     toggle('2本指タップで元に戻す', '3本指タップでやり直し', s.twoFingerUndo, (v) => set({ twoFingerUndo: v })),
     toggle('配置した写真・スキャンを自動で固定', '位置を決めて選択を外すと固定。投げ縄・消しゴム・手のひらで動かなくなる', s.autoLockPlaced, (v) => set({ autoLockPlaced: v })),
+    ...(nativeInk.available() ? inkSection(s, set) : []),
     h('h3', null, '表示'),
     h(
       'div',

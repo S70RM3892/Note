@@ -85,6 +85,25 @@ export class DB {
     return done(tx);
   }
 
+  /**
+   * Read-modify-write one record in a single transaction, so nothing can be written in between.
+   * `fn` returns the new value, or undefined to leave the record alone.
+   */
+  update<T>(store: StoreName, key: string, fn: (current: T | undefined) => T | undefined): Promise<boolean> {
+    const tx = this.db.transaction(store, 'readwrite');
+    const os = tx.objectStore(store);
+    let changed = false;
+    const r = os.get(key);
+    r.onsuccess = () => {
+      const next = fn(r.result as T | undefined);
+      if (next !== undefined) {
+        os.put(next);
+        changed = true;
+      }
+    };
+    return done(tx).then(() => changed);
+  }
+
   put(store: StoreName, value: unknown) {
     return this.write({ put: [[store, value]] });
   }

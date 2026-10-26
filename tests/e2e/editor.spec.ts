@@ -409,9 +409,11 @@ test('固定: locked objects ignore the lasso and the eraser; tap offers unlock;
   await pen(page, lassoAround);
   await page.getByTestId('sel-lock').click();
   expect(await page.evaluate(() => (window as any).sumi.view.doc.pages[0].strokes[0].locked)).toBe(true);
-  // Lasso no longer selects it.
+  // Lasso no longer selects it (the area itself is offered instead: まちがいノート / 画像でコピー…).
   await pen(page, lassoAround);
-  await expect(page.locator('.sel-menu')).toBeHidden();
+  await expect(page.getByTestId('region-mistake')).toBeVisible();
+  await expect(page.getByTestId('sel-delete')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).sumi.editor.selection.active)).toBe(false);
   // Eraser leaves it alone.
   await page.getByTestId('tool-eraser').click();
   await pen(page, line(300, 250, 500, 350, 30));

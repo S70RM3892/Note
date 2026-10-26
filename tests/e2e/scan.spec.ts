@@ -92,7 +92,8 @@ test('写真 → カラーベクター → 配置 → 自動で固定 → PDF �
     [40, 780],
     [40, 102],
   ]);
-  await expect(page.locator('.sel-menu')).toBeHidden();
+  await expect(page.getByTestId('sel-delete')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).sumi.editor.selection.active)).toBe(false);
   await page.screenshot({ path: 'test-results/scan-placed.png' });
 
   // Write over it with the pen.
