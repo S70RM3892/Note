@@ -1857,3 +1857,12 @@ select.input {
 .goal-bar i.done {
   background: #2e7d32;
 }
+
+.diag-text {
+  width: 100%;
+  font-family: ui-monospace, 'Noto Sans Mono', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  resize: vertical;
+}

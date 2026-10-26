@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
+        CrashLog.install(this)
         super.onCreate(savedInstanceState)
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         cleanOldFiles()
@@ -141,7 +142,14 @@ class MainActivity : ComponentActivity() {
         }
         web = createWebView()
         container.addView(web)
-        wetInk = WetInk(container, onFail = { toast(it) })
+        wetInk = WetInk(
+            container,
+            onFail = { msg ->
+                toast(msg)
+                CrashLog.note(this, "wetink-off", msg)
+            },
+            onError = { e -> CrashLog.note(this, "wetink", android.util.Log.getStackTraceString(e)) },
+        )
         hideSystemBars()
 
         onBackPressedDispatcher.addCallback(this) {
@@ -191,6 +199,8 @@ class MainActivity : ComponentActivity() {
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 // The renderer crashed or was reclaimed: rebuild the WebView instead of taking the app down.
                 // Notes live in IndexedDB, so the reload comes back to the same state.
+                CrashLog.note(this@MainActivity, "renderer", "didCrash=${detail.didCrash()} priorityAtExit=${detail.rendererPriorityAtExit()}")
+                toast("表示エンジンが落ちたので読み込み直した（診断ログに記録）")
                 container.removeView(web)
                 web.destroy()
                 web = createWebView()
@@ -244,13 +254,24 @@ class MainActivity : ComponentActivity() {
     lateinit var ink: InkRecognizer
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        trackPenButton(ev)
-        val fixed = stylusFilter.filter(ev)
+        // Nothing done to the pen before the page gets it may ever take the app down: on any
+        // error the original event goes through untouched (and the error is logged).
+        var fixed: MotionEvent? = null
+        try {
+            trackPenButton(ev)
+            fixed = stylusFilter.filter(ev)
+        } catch (t: Throwable) {
+            CrashLog.note(this, "touch", android.util.Log.getStackTraceString(t))
+        }
         val e = fixed ?: ev
-        // Pen samples as soon as the digitizer reports them, not batched to the next frame.
-        if (e.actionMasked == MotionEvent.ACTION_DOWN && e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) web.requestUnbufferedDispatch(e)
-        // Low-latency wet ink first, then the page (which commits the real stroke).
-        wetInk.onTouch(e, penButton && stylusFilter.action != "none")
+        try {
+            // Pen samples as soon as the digitizer reports them, not batched to the next frame.
+            if (e.actionMasked == MotionEvent.ACTION_DOWN && e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) web.requestUnbufferedDispatch(e)
+            // Low-latency wet ink first, then the page (which commits the real stroke).
+            wetInk.onTouch(e, penButton && stylusFilter.action != "none")
+        } catch (t: Throwable) {
+            CrashLog.note(this, "touch", android.util.Log.getStackTraceString(t))
+        }
         return try {
             super.dispatchTouchEvent(e)
         } finally {
@@ -259,7 +280,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
-        trackPenButton(ev)
+        runCatching { trackPenButton(ev) }
         return super.dispatchGenericMotionEvent(ev)
     }
 

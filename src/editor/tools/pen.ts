@@ -8,6 +8,8 @@ import type { Sample, Tool } from '../tool';
 
 const HOLD_MS = 450;
 const HOLD_SLOP = 5; // CSS px
+/** After a snap, writing on this far (CSS px) from where the pen rested means it wasn't a shape. */
+const UNSNAP_DIST = 16;
 
 /**
  * Pen and highlighter: pressure ink with hold-to-snap shape recognition. Raw samples go through
@@ -27,8 +29,14 @@ export class PenTool implements Tool {
   private last: Sample | null = null;
   private started = 0;
   private predTimer = 0;
-  /** The shell is drawing this stroke as low-latency wet ink: no live ink of our own. */
-  private wet = false;
+  /** The shell's wet stroke for this one (0 = none): it draws the ink, we draw no live ink. */
+  private wetId = 0;
+  /** Bumped whenever the pen moves on: a pending hold check that sees another value is stale. */
+  private holdGen = 0;
+  /** Where the pen rested when the stroke snapped to a shape. */
+  private snapHold = { x: 0, y: 0 };
+  /** 直線マーカー: a straight line from the start, not a snap. */
+  private straight = false;
   /** S Pen hovering: where the tip would land (screen px). */
   private cursor: { x: number; y: number } | null = null;
 
@@ -73,12 +81,14 @@ export class PenTool implements Tool {
 
   down(s: Sample) {
     if (this.cursor) this.hover(null);
+    // The shell's wet stroke that started here (if any): ours, whether or not we keep it.
+    const wetId = this.kind === 'pen' ? (this.ed.wet?.claim(s.sx, s.sy) ?? 0) : 0;
     const hit = this.ed.pageAt(s.wx, s.wy);
     if (!hit) {
-      this.ed.wet?.cancel();
+      if (wetId) this.ed.wet?.cancel(wetId);
       return;
     }
-    this.wet = this.kind === 'pen' && !!this.ed.wet?.claim();
+    this.wetId = wetId;
     const st = this.ed.settings.get();
     if (this.kind === 'pen') {
       this.style = st.pen.style;
@@ -92,6 +102,7 @@ export class PenTool implements Tool {
     this.hit = hit;
     this.pts = [];
     this.snapped = null;
+    this.straight = false;
     this.started = s.t;
     this.model = new StrokeModeler(this.modelParams(st.stabilization));
     this.ed.live.begin(this.color, this.kind === 'highlighter', hit.dark, this.pencilOrigin());
@@ -100,6 +111,7 @@ export class PenTool implements Tool {
     this.last = s;
     // 直線マーカー: the stroke is a straight line from the start (the snapped-line path below).
     if (this.kind === 'highlighter' && st.highlighterStraight) {
+      this.straight = true;
       this.snapped = { kind: 'line', pts: [{ x: first.x, y: first.y }, { x: first.x, y: first.y }], closed: false };
       this.drawSnapped();
       return;
@@ -120,11 +132,23 @@ export class PenTool implements Tool {
     return { x: vp.toScreenX(this.hit.ox), y: vp.toScreenY(this.hit.oy) };
   }
 
+  /**
+   * Hold-to-snap. The timer runs on the clock, but the pen's samples can wait behind a busy
+   * moment (a save, a big redraw): the timer may fire while samples showing the pen moving on
+   * are still queued. So the snap is confirmed on the next animation frame — queued pen moves are
+   * delivered before frame callbacks run, and any of them that moved on re-arms (holdGen changes).
+   */
   private armHold(s: Sample) {
     clearTimeout(this.holdTimer);
+    this.holdGen++;
     this.hold = { x: s.sx, y: s.sy };
-    if (!this.ed.settings.get().shapeHold) return;
-    this.holdTimer = window.setTimeout(() => this.trySnap(), HOLD_MS);
+    if (!this.ed.settings.get().shapeHold || this.snapped) return;
+    const gen = this.holdGen;
+    this.holdTimer = window.setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (gen === this.holdGen) this.trySnap();
+      });
+    }, HOLD_MS);
   }
 
   /** Append a modeled point (page coordinates of the stroke's page). */
@@ -137,7 +161,7 @@ export class PenTool implements Tool {
       if (dx * dx + dy * dy < (0.45 / this.ed.vp.zoom) ** 2) return;
     }
     this.pts.push(x, y, p);
-    if (this.wet) return;
+    if (this.wetId || this.snapped) return;
     const vp = this.ed.vp;
     this.ed.live.add(vp.toScreenX(wx), vp.toScreenY(wy), this.radius(p) * vp.zoom, show);
   }
@@ -146,6 +170,16 @@ export class PenTool implements Tool {
     if (!this.hit) return;
     const last = samples[samples.length - 1];
     if (last) this.last = last;
+    const h = this.hit;
+    // The samples always go into the stroke — also while it shows as a shape, in case the
+    // writing goes on and it turns back into handwriting.
+    if (!this.straight) {
+      for (const s of samples) {
+        for (const q of this.model.update(s.wx - h.ox, s.wy - h.oy, s.p, s.t)) this.push(q.x, q.y, q.p, false, false);
+        if (!this.snapped && Math.hypot(s.sx - this.hold.x, s.sy - this.hold.y) > HOLD_SLOP) this.armHold(s);
+      }
+    }
+    if (this.snapped && last && !this.straight && this.leftShape(last)) this.unsnap();
     if (this.snapped) {
       if (this.snapped.kind === 'line' && last) {
         const a = this.snapped.pts[0];
@@ -162,12 +196,7 @@ export class PenTool implements Tool {
       }
       return;
     }
-    const h = this.hit;
-    for (const s of samples) {
-      for (const q of this.model.update(s.wx - h.ox, s.wy - h.oy, s.p, s.t)) this.push(q.x, q.y, q.p, false, false);
-      if (Math.hypot(s.sx - this.hold.x, s.sy - this.hold.y) > HOLD_SLOP) this.armHold(s);
-    }
-    if (this.wet) return;
+    if (this.wetId) return;
     this.ed.live.show();
     // The modeled tip trails the pen a little: show the catch-up to the pen (as if it lifted
     // now) and then the platform's predicted points, on the overlay that is redrawn each event.
@@ -195,13 +224,36 @@ export class PenTool implements Tool {
     const shape = recognizeShape(this.shapePoints());
     if (!shape) return;
     this.snapped = shape;
+    this.snapHold = { ...this.hold };
     navigator.vibrate?.(12);
-    // The shape preview is ours: take the wet stroke off the screen.
-    if (this.wet) {
-      this.wet = false;
-      this.ed.wet?.cancel();
+    // The shape preview is ours: take the wet stroke off the screen (we draw the rest ourselves).
+    if (this.wetId) {
+      this.ed.wet?.cancel(this.wetId);
+      this.wetId = 0;
     }
     this.drawSnapped();
+  }
+
+  /** The pen went on writing after the snap: away from the resting point (a line may still be lengthened or turned). */
+  private leftShape(s: Sample): boolean {
+    const snap = this.snapped!;
+    const d = Math.hypot(s.sx - this.snapHold.x, s.sy - this.snapHold.y);
+    if (snap.kind !== 'line') return d > UNSNAP_DIST;
+    const h = this.hit!, vp = this.ed.vp;
+    const ax = vp.toScreenX(snap.pts[0].x + h.ox), ay = vp.toScreenY(snap.pts[0].y + h.oy);
+    const dx = this.snapHold.x - ax, dy = this.snapHold.y - ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const off = Math.abs((s.sx - ax) * dy - (s.sy - ay) * dx) / len;
+    return off > Math.max(UNSNAP_DIST, 0.15 * len);
+  }
+
+  /** Back to handwriting: everything written so far, as written. */
+  private unsnap() {
+    this.snapped = null;
+    this.ed.live.clear();
+    this.repaintLive();
+    this.ed.live.show();
+    if (this.last) this.armHold(this.last);
   }
 
   private drawSnapped() {
@@ -215,7 +267,7 @@ export class PenTool implements Tool {
   }
 
   repaintLive() {
-    if (!this.hit || this.wet) return;
+    if (!this.hit || this.wetId) return;
     if (this.snapped) return this.drawSnapped();
     const vp = this.ed.vp, h = this.hit;
     this.ed.live.begin(this.color, this.kind === 'highlighter', h.dark, this.pencilOrigin());
@@ -227,6 +279,7 @@ export class PenTool implements Tool {
   up(s: Sample) {
     clearTimeout(this.holdTimer);
     clearTimeout(this.predTimer);
+    this.holdGen++; // a hold check still waiting for its frame is void now
     if (!this.hit) return;
     const h = this.hit;
     let stroke: Stroke;
@@ -249,16 +302,17 @@ export class PenTool implements Tool {
     }
     this.hit = null;
     this.ed.live.predict(null, []);
-    this.ed.commitStroke(h.page.id, stroke, this.wet);
-    this.wet = false;
+    this.ed.commitStroke(h.page.id, stroke, this.wetId);
+    this.wetId = 0;
     this.ed.noteActivity(s ? s.t - this.started : 0, h.page.id);
   }
 
   abort() {
     clearTimeout(this.holdTimer);
     clearTimeout(this.predTimer);
-    if (this.wet) this.ed.wet?.cancel();
-    this.wet = false;
+    this.holdGen++;
+    if (this.wetId) this.ed.wet?.cancel(this.wetId);
+    this.wetId = 0;
     this.hit = null;
     this.ed.live.predict(null, []);
     this.ed.live.clear();

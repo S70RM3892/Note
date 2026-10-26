@@ -129,9 +129,9 @@ function installWetInk(app: App, bridge: SumiNativeBridge) {
   if (!bridge.setWetInk || !bridge.wetClaim) return;
   app.withEditor((ed: Editor) => {
     ed.wet = {
-      claim: () => !!bridge.wetClaim?.(),
-      done: () => bridge.wetDone?.(),
-      cancel: () => bridge.wetCancel?.(),
+      claim: (x, y) => Number(bridge.wetClaim?.(x, y)) || 0,
+      done: (id) => bridge.wetDone?.(id),
+      cancel: (id) => bridge.wetCancel?.(id),
     };
     let last = '';
     const sync = () => {

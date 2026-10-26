@@ -82,7 +82,7 @@ test.describe('ink', () => {
     expect((await docInfo(page)).pages[0].strokes.length).toBe(1);
     await page.getByTestId('redo').click();
     expect((await docInfo(page)).pages[0].strokes.length).toBe(2);
-    await page.waitForTimeout(1000); // palm-rejection window after the pen
+    await page.waitForTimeout(1600); // palm-rejection window after the pen
     await tapFingers(page, [
       [500, 600],
       [600, 600],

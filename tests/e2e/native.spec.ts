@@ -42,6 +42,10 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
         }, 20),
       setFocusLock: (on: boolean) => (w.__focus ??= []).push(on),
       setReminders: (json: string) => (w.__reminders ??= []).push(JSON.parse(json)),
+      // 診断ログ: what the shell recorded (a crash from the last run, set by the test).
+      diagnostics: () => JSON.stringify(w.__diag ?? []),
+      clearDiagnostics: () => (w.__diag = []),
+      noteDiagnostic: (kind: string, text: string) => (w.__noted ??= []).push([kind, text]),
       takeShortcut: () => {
         const t = w.__shortcut ?? '';
         w.__shortcut = '';
@@ -50,9 +54,10 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
       notificationsAllowed: () => !!w.__notifyOk,
       // Wet ink: the test decides whether the shell "drew" the stroke (default: no).
       setWetInk: (json: string) => (w.__wet ??= []).push(JSON.parse(json)),
-      wetClaim: () => !!w.__wetDraws,
-      wetDone: () => (w.__wetDone = (w.__wetDone ?? 0) + 1),
-      wetCancel: () => (w.__wetCancel = (w.__wetCancel ?? 0) + 1),
+      // Ids by claim order; the page says where its pen went down.
+      wetClaim: (x: number, y: number) => (w.__wetDraws ? (w.__claims ??= []).push([x, y]) : 0),
+      wetDone: (id: number) => ((w.__wetDone = (w.__wetDone ?? 0) + 1), (w.__doneIds ??= []).push(id)),
+      wetCancel: (id: number) => ((w.__wetCancel = (w.__wetCancel ?? 0) + 1), (w.__cancelIds ??= []).push(id)),
       // Fake recognizer: names a line by its stroke count ("3画") so tests can check the plumbing.
       inkStatus: () => w.__inkStatus ?? 'ready',
       inkDownload: () => setTimeout(() => ((w.__inkStatus = 'ready'), w.__sumiNative.onInkModel(JSON.stringify({ ok: true }))), 20),
@@ -327,6 +332,11 @@ test('low-latency wet ink: the page tells the shell where the pen draws and hand
   await penLift(page, 600, 330);
   await expect.poll(() => page.evaluate(() => (window as any).__wetDone ?? 0)).toBe(1);
   expect((await docInfo(page)).pages[0].strokes).toHaveLength(1);
+  // It claimed by where the pen went down (CSS px in the writing area) and finished that id.
+  const claim = await page.evaluate(() => (window as any).__claims[0]);
+  expect(claim[0]).toBeCloseTo(300 - rect[0], 0);
+  expect(claim[1]).toBeCloseTo(300 - rect[1], 0);
+  expect(await page.evaluate(() => (window as any).__doneIds)).toEqual([1]);
 
   // The shell didn't draw it: the page shows its own live ink and has nothing to report.
   await page.evaluate(() => ((window as any).__wetDraws = false));
@@ -340,6 +350,7 @@ test('low-latency wet ink: the page tells the shell where the pen draws and hand
   await page.evaluate(() => ((window as any).__wetDraws = true));
   await pen(page, line(300, 500, 700, 500), { holdMs: 700 });
   expect(await page.evaluate(() => (window as any).__wetCancel)).toBe(1);
+  expect(await page.evaluate(() => (window as any).__cancelIds)).toEqual([2]);
   // A pen-down off the paper (on the grey desk) is dropped too.
   const desk = await page.evaluate(() => {
     const ed = (window as any).sumi.editor;
@@ -440,4 +451,29 @@ test('S Pen button click: undo, or pen ⇄ eraser; press-and-write is not a clic
   await button(true);
   await button(false);
   await expect(page.getByTestId('tool-pen')).toHaveClass(/active/);
+});
+
+test('診断ログ: after a crash the app says so once and shows the record; script errors are kept', async ({ page }) => {
+  await fakeBridge(page);
+  const crashedAt = Date.now() - 60_000;
+  await page.addInitScript((at) => {
+    (window as any).__diag = [{ at, kind: 'crash', text: 'thread main\njava.lang.IllegalStateException: surface gone\n\tat WetInk.render' }];
+  }, crashedAt);
+  await page.goto('/');
+  await expect(page.getByText('前回アプリが落ちた')).toBeVisible({ timeout: 5000 });
+  await page.getByRole('button', { name: '見る' }).click();
+  await expect(page.getByTestId('diag-text')).toHaveValue(/IllegalStateException: surface gone/);
+  await page.keyboard.press('Escape');
+  // A script error is recorded (and handed to the shell's log).
+  await page.evaluate(() => setTimeout(() => (null as any).boom(), 0));
+  await expect.poll(() => page.evaluate(() => ((window as any).__noted ?? []).map((x: string[]) => x[0]))).toContain('js-error');
+  // Next start: the same crash isn't announced again.
+  await page.reload();
+  await page.waitForTimeout(2500);
+  await expect(page.getByText('前回アプリが落ちた')).toHaveCount(0);
+  // Settings → 診断ログ shows both.
+  await page.locator('.lib-head .icon-btn').last().click();
+  await page.getByText('設定', { exact: true }).click();
+  await page.getByTestId('open-diag').click();
+  await expect(page.getByTestId('diag-text')).toHaveValue(/surface gone[\s\S]*boom/);
 });

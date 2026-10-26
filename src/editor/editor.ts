@@ -54,14 +54,17 @@ export class Editor {
   sideButtonHeld = false;
   /** Pen touches so far (tells a side-button click from press-and-write). */
   penDowns = 0;
+  /** The active tool's latest sample (to finish a stroke whose pointerup was lost). */
+  private lastToolSample: Sample | null = null;
   /** Reference viewer: the pen scrolls instead of writing and nothing is modified. */
   readOnly = false;
   /**
    * The Android shell's low-latency wet ink (null in a browser). The pen tool claims the shell's
-   * wet stroke when it starts (and then doesn't draw its own live ink), cancels it when the
-   * stroke is dropped or snaps to a shape, and reports when the committed stroke is on screen.
+   * wet stroke by where the pen went down (an id, 0 = none: then it draws its own live ink),
+   * cancels it when the stroke is dropped or becomes a shape, and the shell erases it once the
+   * committed stroke is on screen (done).
    */
-  wet: { claim(): boolean; done(): void; cancel(): void } | null = null;
+  wet: { claim(x: number, y: number): number; done(id: number): void; cancel(id: number): void } | null = null;
 
   private ui: HTMLCanvasElement;
   private uiCtx: CanvasRenderingContext2D;
@@ -151,6 +154,11 @@ export class Editor {
     el.addEventListener('pointermove', (e) => this.onMove(e));
     el.addEventListener('pointerup', (e) => this.onUp(e, false));
     el.addEventListener('pointercancel', (e) => this.onUp(e, true));
+    // Capture lost without a pointerup (the element left the page, the browser took the pointer
+    // away): end the stroke as if the pen lifted, so the next one isn't blocked.
+    el.addEventListener('lostpointercapture', (e) => {
+      if (e.pointerId === this.toolPtr && this.activeTool) this.onUp(e, false);
+    });
     el.addEventListener('pointerleave', (e) => {
       if (e.pointerType === 'pen' && this.toolPtr === null) this.hoverTool?.hover?.(null);
     });
@@ -265,12 +273,12 @@ export class Editor {
     ctx.restore();
   }
 
-  commitStroke(pageId: string, s: Stroke, wet = false) {
+  commitStroke(pageId: string, s: Stroke, wetId = 0) {
     this.doc!.addStroke(pageId, s);
     // Show the stroke on the main canvas before the live layer (or the shell's wet ink) is wiped.
     this.renderer.renderNow();
     this.live.clearSoon();
-    if (wet) requestAnimationFrame(() => requestAnimationFrame(() => this.wet?.done()));
+    if (wetId) requestAnimationFrame(() => requestAnimationFrame(() => this.wet?.done(wetId)));
     this.onStroke(pageId, s);
   }
 
@@ -529,7 +537,16 @@ export class Editor {
       }
       return;
     }
-    if (this.toolPtr !== null) return;
+    if (this.toolPtr !== null) {
+      // There is one pen: a new pen-down while a pen stroke is still open means that stroke's
+      // pointerup never arrived. Finish it as it stands rather than ignoring every stroke from now on.
+      if (!(e.pointerType === 'pen' && this.toolPtrType === 'pen' && this.activeTool && this.lastToolSample)) return;
+      const stale = this.activeTool;
+      this.activeTool = null;
+      this.toolPtr = null;
+      this.toolPtrType = '';
+      stale.up(this.lastToolSample);
+    }
     // The pen wins over any finger gesture in progress (and stops a fling).
     this.stopMomentum();
     this.renderer.gesture = false;
@@ -559,7 +576,8 @@ export class Editor {
     } catch {
       /* synthetic pointers */
     }
-    tool.down(this.sample(e, rect));
+    this.lastToolSample = this.sample(e, rect);
+    tool.down(this.lastToolSample);
     this.requestUI();
   }
 
@@ -582,6 +600,7 @@ export class Editor {
       const events = e.getCoalescedEvents?.() ?? [];
       const samples = (events.length ? events : [e]).map((ev) => this.sample(ev, rect));
       const predicted = (e.getPredictedEvents?.() ?? []).map((ev) => this.sample(ev, rect));
+      this.lastToolSample = samples[samples.length - 1];
       this.activeTool.move(samples, predicted);
       return;
     }
@@ -686,8 +705,9 @@ export class Editor {
       const w = this.vp.toWorld(t.x, t.y);
       if (this.toggleTapeAt(w.x, w.y)) return;
       if (this.selection.active && !this.selection.hitHandle(t.x, t.y)) this.selection.clear();
-    } else if (performance.now() - this.lastPen < 900) {
-      // A palm landing right after writing looks like a multi-finger tap: ignore it.
+    } else if (performance.now() - this.lastPen < 1500) {
+      // A palm landing (and lifting) during a pause in writing looks like a multi-finger tap:
+      // undoing then would make the last stroke vanish. Ignore it.
       return;
     } else if (fingers === 2 && this.settings.get().twoFingerUndo) {
       this.undo();

@@ -1,7 +1,7 @@
 import { itemBounds, rectUnion, strokeBounds } from '../core/geometry';
 import { History, type Command } from '../core/history';
 import type { Item, Notebook, Page, PageBackground, Rect, Stroke } from '../core/types';
-import type { Repo } from '../store/repo';
+import type { Repo, StoredContent } from '../store/repo';
 
 export interface Content {
   strokes: Stroke[];
@@ -38,6 +38,8 @@ export class EditorDoc {
   private nbDirty = false;
   private saveTimer = 0;
   private saving: Promise<void> = Promise.resolve();
+  /** What each page held when last written (content arrays are replaced, never changed in place). */
+  private stored = new Map<string, StoredContent>();
   /** Content of a page changed; region in page coordinates (null = whole page). */
   onContent: (pageId: string, region: Rect | null) => void = () => {};
   /** Pages were added, removed, reordered or resized. */
@@ -47,7 +49,10 @@ export class EditorDoc {
   /** A read-only doc (reference pane) never writes: it may hold a stale snapshot. */
   constructor(public repo: Repo, public nb: Notebook, pages: Page[], readonly readOnly = false) {
     this.pages = pages;
-    pages.forEach((p) => this.byId.set(p.id, p));
+    pages.forEach((p) => {
+      this.byId.set(p.id, p);
+      this.stored.set(p.id, { strokes: p.strokes, items: p.items, updated: p.updated });
+    });
   }
 
   page(id: string): Page | undefined {
@@ -231,7 +236,9 @@ export class EditorDoc {
       // "Updated" means the content changed, not that the notebook was merely opened.
       if (pages.length) this.nb.updated = Date.now();
       try {
-        await this.repo.savePages(pages, this.nb);
+        const written = pages.map((p) => [p.id, { strokes: p.strokes, items: p.items, updated: p.updated }] as const);
+        await this.repo.savePages(pages, this.nb, Date.now(), this.stored);
+        for (const [id, c] of written) this.stored.set(id, c);
         this.onSaved();
       } catch (e) {
         pages.forEach((p) => this.dirtyPages.add(p.id));

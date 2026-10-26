@@ -37,6 +37,13 @@ export interface PageVersion {
   items: Page['items'];
 }
 
+/** What a page held when it was last written (for ページの履歴; the editor keeps it in memory). */
+export interface StoredContent {
+  strokes: Page['strokes'];
+  items: Page['items'];
+  updated: number;
+}
+
 /** A page keeps a snapshot at most this often while it is being edited… */
 export const SNAPSHOT_EVERY = 10 * 60_000;
 /** …and its newest this many. */
@@ -158,18 +165,19 @@ export class Repo {
   }
 
   /**
-   * Save pages. ページの履歴: before a page is overwritten, its stored state is kept as a version
-   * when the last one is older than SNAPSHOT_EVERY (so the first save of a session keeps how
-   * the page was before it), and always when the save loses most of the page (cleared, or a
-   * big part erased).
+   * Save pages. ページの履歴: given what each page held when it was last written (`previous`,
+   * kept by the editor — never read back from the database, which on a dense page would cost a
+   * big deserialisation on every autosave), that state is kept as a version when the last one is
+   * older than SNAPSHOT_EVERY (so the first save of a session keeps how the page was before it),
+   * and always when the save loses most of the page (cleared, or a big part erased).
    */
-  async savePages(pages: Page[], nb?: Notebook, now = Date.now()) {
-    const old = await this.db.getMany<Page>('pages', pages.map((p) => p.id));
+  async savePages(pages: Page[], nb?: Notebook, now = Date.now(), previous?: Map<string, StoredContent>) {
     const put: [('pages' | 'notebooks' | 'versions'), unknown][] = pages.map((p) => ['pages', p]);
     if (nb) put.push(['notebooks', nb]);
     const snapped: string[] = [];
     for (let i = 0; i < pages.length; i++) {
-      const o = old[i];
+      const prev = previous?.get(pages[i].id);
+      const o = prev && { id: pages[i].id, nb: pages[i].nb, ...prev };
       if (!o || (!o.strokes.length && !o.items.length)) continue;
       const before = o.strokes.length + o.items.length;
       const after = pages[i].strokes.length + pages[i].items.length;

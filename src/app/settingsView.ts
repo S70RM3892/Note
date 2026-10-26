@@ -2,6 +2,7 @@ import type { Settings } from '../store/settings';
 import type { ExamDate } from '../study/countdown';
 import { native, nativeInk, pickNativeBackupFolder, setNativeCallbacks } from '../platform';
 import { maybeAutoBackup } from './autoBackup';
+import { openDiagnostics } from './diagnostics';
 import { formatDate } from '../ui/dom';
 import { h } from '../ui/dom';
 import { modal, toast } from '../ui/dialogs';
@@ -268,6 +269,7 @@ export function openSettings(app: App) {
     toggle('就寝ロック', '就寝時刻の15分後から起床時刻まで、画面を閉じて書けなくする。延長は5秒長押しで15分（1晩2回まで）。過去問タイマー中はロックしない', s.bedtimeLock, (v) => set({ bedtimeLock: v })),
     toggle('夜間は暖色フィルター', '就寝時刻〜起床時刻の間、画面を暖色にする', s.nightFilter, (v) => set({ nightFilter: v })),
     h('h3', null, 'データ'),
+    h('div', { class: 'toggle-row' }, h('div', null, '診断ログ', h('div', { class: 'muted', style: 'font-size:12px' }, '落ちた・おかしいときの記録。不具合を伝えるときに送る')), h('button', { class: 'btn small', 'data-testid': 'open-diag', onclick: () => openDiagnostics() }, '見る')),
     slider('バックアップ催促の間隔', 1, 30, 1, s.backupReminderDays, (v) => `${v}日`, (v) => set({ backupReminderDays: v })),
     storage,
     h('p', { class: 'muted', style: 'font-size:12px;margin-top:16px' }, native ? 'Sumi Note — データはこのアプリの中にだけ保存される。アンインストールで消えるので、自動バックアップを設定しておけ。' : 'Sumi Note — データはこの端末内（ブラウザのIndexedDB）にだけ保存される。アンインストールやサイトデータ削除で消えるので、定期的にバックアップを書き出せ。'),

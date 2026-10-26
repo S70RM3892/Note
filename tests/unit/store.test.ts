@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { Repo, SNAPSHOT_EVERY, SNAPSHOT_KEEP } from '../../src/store/repo';
+import { Repo, SNAPSHOT_EVERY, SNAPSHOT_KEEP, type StoredContent } from '../../src/store/repo';
 import { exportBackup, importBackup, pageFromJSON, pageToJSON } from '../../src/store/backup';
 import { isNight, sleepLocked } from '../../src/store/settings';
 import { mkStroke } from './helpers';
@@ -107,38 +107,44 @@ describe('ページの履歴', () => {
     const { nb, pages } = await repo.createNotebook({ title: 'x' });
     const p = pages[0];
     const t0 = 1_800_000_000_000;
+    // What the editor keeps: the content as last written (no read-back from the database).
+    const stored = new Map<string, StoredContent>();
+    const save = async (at: number) => {
+      const written = { strokes: p.strokes, items: p.items, updated: p.updated };
+      await repo.savePages([p], nb, at, stored);
+      stored.set(p.id, written);
+    };
     // An empty page has nothing worth keeping.
     p.strokes = [mkStroke([[1, 1, 0.5], [2, 2, 0.5]])];
     p.updated = t0;
-    await repo.savePages([p], nb, t0);
+    await save(t0);
     expect(await repo.listVersions(p.id)).toHaveLength(0);
     // Next session: the one-stroke state is kept before it is overwritten.
     p.strokes = [...p.strokes, mkStroke([[3, 3, 0.5], [4, 4, 0.5]])];
     p.updated = t0 + SNAPSHOT_EVERY;
-    await repo.savePages([p], nb, t0 + SNAPSHOT_EVERY);
+    await save(t0 + SNAPSHOT_EVERY);
     let v = await repo.listVersions(p.id);
     expect(v.map((x) => [x.strokes.length, x.at])).toEqual([[1, t0]]);
     // Saves within 10 minutes don't add versions…
     p.strokes = [...p.strokes, mkStroke([[7, 7, 0.5], [8, 8, 0.5]])];
     p.updated = t0 + SNAPSHOT_EVERY + 30_000;
-    await repo.savePages([p], nb, t0 + SNAPSHOT_EVERY + 30_000);
+    await save(t0 + SNAPSHOT_EVERY + 30_000);
     expect(await repo.listVersions(p.id)).toHaveLength(1);
     // …unless the save loses most of the page: clearing it keeps the 3 strokes just before.
     p.strokes = [];
-    await repo.savePages([p], nb, t0 + SNAPSHOT_EVERY + 60_000);
+    await save(t0 + SNAPSHOT_EVERY + 60_000);
     v = await repo.listVersions(p.id);
     expect(v.map((x) => x.strokes.length)).toEqual([3, 1]);
     // An empty stored page has nothing to keep.
     p.strokes = [mkStroke([[5, 5, 0.5], [6, 6, 0.5]])];
     p.updated = t0 + 3 * SNAPSHOT_EVERY;
-    await repo.savePages([p], nb, t0 + 3 * SNAPSHOT_EVERY);
+    await save(t0 + 3 * SNAPSHOT_EVERY);
     expect(await repo.listVersions(p.id)).toHaveLength(2);
     // Many sessions: only the newest SNAPSHOT_KEEP stay; a fresh Repo finds the last snapshot time.
-    const again = repo;
     for (let i = 4; i < 4 + SNAPSHOT_KEEP + 5; i++) {
       p.strokes = [mkStroke([[i, i, 0.5], [i + 1, i + 1, 0.5]])];
       p.updated = t0 + i * SNAPSHOT_EVERY;
-      await again.savePages([p], nb, t0 + i * SNAPSHOT_EVERY);
+      await save(t0 + i * SNAPSHOT_EVERY);
     }
     v = await repo.listVersions(p.id);
     expect(v).toHaveLength(SNAPSHOT_KEEP);

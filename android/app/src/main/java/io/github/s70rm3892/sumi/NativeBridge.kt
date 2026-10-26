@@ -94,21 +94,32 @@ class NativeBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun setWetInk(json: String) = activity.wetInk.setParams(json)
 
-    /** The page's pen stroke started: true if a wet stroke is already on screen for it. */
+    /** The page's pen stroke started at (x, y) CSS px in the writing area: the id of its wet stroke, or 0. */
     @JavascriptInterface
-    fun wetClaim(): Boolean = activity.wetInk.claim()
+    fun wetClaim(x: Double, y: Double): Int = activity.wetInk.claim(x, y)
 
-    /** The committed stroke is on screen: drop the wet copy. */
+    /** The committed stroke [id] is on screen: drop the wet copy. */
     @JavascriptInterface
-    fun wetDone() {
-        activity.wetInk.done()
+    fun wetDone(id: Int) {
+        activity.wetInk.done(id)
     }
 
-    /** The page discarded the stroke (no page under the pen, or it snapped to a shape). */
+    /** The page discarded stroke [id] (no page under the pen, or it snapped to a shape). */
     @JavascriptInterface
-    fun wetCancel() {
-        activity.wetInk.cancel()
+    fun wetCancel(id: Int) {
+        activity.wetInk.cancel(id)
     }
+
+    /** 診断ログ: crashes and failures recorded by the app, JSON [{at, kind, text}]. */
+    @JavascriptInterface
+    fun diagnostics(): String = CrashLog.list(activity)
+
+    @JavascriptInterface
+    fun clearDiagnostics() = CrashLog.clear(activity)
+
+    /** Something the page wants kept in the 診断ログ (e.g. a script error). */
+    @JavascriptInterface
+    fun noteDiagnostic(kind: String, text: String) = CrashLog.note(activity, kind.take(24).replace(Regex("[^a-z0-9-]"), ""), text.take(20_000))
 
     /** 就寝・復習のお知らせ: replace the daily reminders (JSON array, see Reminder); asks for permission if needed. */
     @JavascriptInterface

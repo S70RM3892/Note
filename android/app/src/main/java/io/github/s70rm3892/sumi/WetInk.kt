@@ -82,17 +82,35 @@ class CircleList {
         private set
     var size = 0
         private set
+    private var minX = Float.POSITIVE_INFINITY
+    private var minY = Float.POSITIVE_INFINITY
+    private var maxX = Float.NEGATIVE_INFINITY
+    private var maxY = Float.NEGATIVE_INFINITY
 
     fun add(x: Float, y: Float, r: Float) {
         if (size + 3 > data.size) data = data.copyOf(data.size * 2)
         data[size++] = x
         data[size++] = y
         data[size++] = r
+        minX = min(minX, x - r)
+        minY = min(minY, y - r)
+        maxX = max(maxX, x + r)
+        maxY = max(maxY, y + r)
     }
 
     fun count() = size / 3
     fun snapshot(): FloatArray = data.copyOf(size)
+
+    /** Circles [from, count) as a new array. */
+    fun copyFrom(from: Int): FloatArray = data.copyOfRange(max(0, from) * 3, size)
+
+    fun bounds(): RectF? = if (size == 0) null else RectF(minX - 2, minY - 2, maxX + 2, maxY + 2)
+
+    fun mayTouch(box: RectF): Boolean = size > 0 && minX - 2 < box.right && maxX + 2 > box.left && minY - 2 < box.bottom && maxY + 2 > box.top
 }
+
+/** Circles to paint: circles[from…], each joined to the one before it (from = 1 starts with a join). */
+class WetRun(val color: Int, val circles: FloatArray, val from: Int)
 
 object CirclePainter {
     private val quad = Path()
@@ -144,17 +162,71 @@ object CirclePainter {
         }
         return b
     }
+
+    /**
+     * The parts of a stroke that paint inside [box]: runs of circles whose piece (the circle and
+     * its join to the previous one) reaches the box. A frame repaints only these, so its cost
+     * doesn't grow with the length of the stroke.
+     */
+    fun runsIn(color: Int, list: CircleList, box: RectF, out: MutableList<WetRun>) {
+        if (!list.mayTouch(box)) return
+        val d = list.data
+        val n = list.count()
+        var start = -1
+        for (i in 0..n) {
+            val hit = i < n && pieceTouches(d, i, box)
+            if (hit && start < 0) start = i
+            if (!hit && start >= 0) {
+                val from = if (start > 0) 1 else 0
+                out += WetRun(color, d.copyOfRange((start - from) * 3, i * 3), from)
+                start = -1
+            }
+        }
+    }
+
+    private fun pieceTouches(d: FloatArray, i: Int, box: RectF): Boolean {
+        val r = max(0.35f, d[i * 3 + 2]) + 2
+        var l = d[i * 3] - r
+        var t = d[i * 3 + 1] - r
+        var rt = d[i * 3] + r
+        var b = d[i * 3 + 1] + r
+        if (i > 0) {
+            val pr = max(0.35f, d[i * 3 - 1]) + 2
+            l = min(l, d[i * 3 - 3] - pr)
+            t = min(t, d[i * 3 - 2] - pr)
+            rt = max(rt, d[i * 3 - 3] + pr)
+            b = max(b, d[i * 3 - 2] + pr)
+        }
+        return l < box.right && rt > box.left && t < box.bottom && b > box.top
+    }
 }
 
 /** One frame for the front buffer: wipe a region and repaint what stays there, append, predict. */
 class WetFrame(
     val clear: RectF?,
-    val redraw: List<Pair<Int, FloatArray>>,
-    val color: Int,
-    val add: FloatArray?,
-    val addFrom: Int,
-    val predict: FloatArray?,
+    val redraw: List<WetRun>,
+    val add: WetRun?,
+    val predict: WetRun?,
 )
+
+/** A copy of [ev] holding only pointer [index], as [action] (history included). The caller recycles it. */
+fun singlePointer(ev: MotionEvent, index: Int, action: Int): MotionEvent {
+    val props = arrayOf(MotionEvent.PointerProperties().also { ev.getPointerProperties(index, it) })
+    val coords = arrayOf(MotionEvent.PointerCoords())
+    val h = if (action == MotionEvent.ACTION_MOVE) ev.historySize else 0
+    fun fill(pos: Int) = if (pos < h) ev.getHistoricalPointerCoords(index, pos, coords[0]) else ev.getPointerCoords(index, coords[0])
+    fun time(pos: Int) = if (pos < h) ev.getHistoricalEventTime(pos) else ev.eventTime
+    fill(0)
+    val out = MotionEvent.obtain(
+        ev.downTime, time(0), action, 1, props, coords, ev.metaState, ev.buttonState,
+        ev.xPrecision, ev.yPrecision, ev.deviceId, ev.edgeFlags, ev.source, ev.flags,
+    )
+    for (pos in 1..h) {
+        fill(pos)
+        out.addBatch(time(pos), coords, ev.metaState)
+    }
+    return out
+}
 
 /** Where wet ink is shown: the real one is a front-buffered SurfaceView; tests use a fake. */
 interface WetSurface {
@@ -162,7 +234,9 @@ interface WetSurface {
     fun place(x: Int, y: Int, w: Int, h: Int)
     fun render(frame: WetFrame)
     fun clear()
-    /** Record a real event; returns the platform's prediction (caller recycles it) or null. */
+    /** A new stroke: the motion predictor starts a fresh gesture. */
+    fun beginGesture()
+    /** Record a single-pointer event of the stroke; returns the platform's prediction (caller recycles it) or null. */
     fun recordAndPredict(ev: MotionEvent): MotionEvent?
     fun release()
 }
@@ -179,7 +253,7 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
     }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val renderer: CanvasFrontBufferedRenderer<WetFrame>
-    private val predictor: MotionEventPredictor
+    private var predictor: MotionEventPredictor? = null
 
     init {
         container.addView(view, FrameLayout.LayoutParams(w, h).apply { leftMargin = x; topMargin = y })
@@ -190,7 +264,6 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
                 canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
             }
         })
-        predictor = MotionEventPredictor.newInstance(view)
     }
 
     private fun draw(canvas: Canvas, f: WetFrame) {
@@ -198,15 +271,16 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
             canvas.save()
             canvas.clipRect(box)
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-            for ((color, c) in f.redraw) {
-                paint.color = color
-                CirclePainter.paint(canvas, c, paint)
-            }
+            for (run in f.redraw) paintRun(canvas, run)
             canvas.restore()
         }
-        paint.color = f.color
-        f.add?.let { CirclePainter.paint(canvas, it, paint, f.addFrom) }
-        f.predict?.let { CirclePainter.paint(canvas, it, paint) }
+        f.add?.let { paintRun(canvas, it) }
+        f.predict?.let { paintRun(canvas, it) }
+    }
+
+    private fun paintRun(canvas: Canvas, run: WetRun) {
+        paint.color = run.color
+        CirclePainter.paint(canvas, run.circles, paint, run.from)
     }
 
     override fun isValid() = renderer.isValid()
@@ -222,9 +296,21 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
     override fun render(frame: WetFrame) = renderer.renderFrontBufferedLayer(frame)
     override fun clear() = renderer.clear()
 
+    override fun beginGesture() {
+        // Made once and kept: creating one can load the system's prediction model.
+        if (predictor == null) predictor = runCatching { MotionEventPredictor.newInstance(view) }.getOrNull()
+    }
+
     override fun recordAndPredict(ev: MotionEvent): MotionEvent? {
-        predictor.record(ev)
-        return if (ev.actionMasked == MotionEvent.ACTION_MOVE) predictor.predict() else null
+        val pr = predictor ?: return null
+        return try {
+            pr.record(ev)
+            if (ev.actionMasked == MotionEvent.ACTION_MOVE) pr.predict() else null
+        } catch (_: Throwable) {
+            // An inconsistent stream (e.g. a gesture Android cancelled): start over with a new predictor.
+            predictor = null
+            null
+        }
     }
 
     override fun release() {
@@ -239,28 +325,43 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
 /**
  * Low-latency "wet" ink for the APK. Pen strokes are drawn natively into a front-buffered
  * overlay the moment the samples arrive (Jetpack graphics-core, plus Android's motion
- * predictor), while the page still receives every event and commits the real stroke. The page
- * claims the wet stroke when its pen tool starts (so it skips its own live drawing), and says
- * when the committed stroke is on screen; then the wet copy is erased. Both sides use the same
+ * predictor), while the page still receives every event and commits the real stroke. Each wet
+ * stroke has an id; the page claims its stroke by where the pen went down (so a page that lags
+ * behind the pen still pairs every stroke with its own), skips its own live ink for it, and says
+ * when the committed stroke is on screen; then that wet copy is erased. Both sides use the same
  * modeler (Modeler.kt / modeler.ts) and the same circle geometry, so nothing visibly changes at
  * the hand-off.
  *
- * Safety: the overlay only covers the writing area (never the toolbar), exists only while the
- * page asks for it (a notebook open, the pen selected, the setting on), and if the renderer
- * can't start the page keeps drawing its own ink.
+ * Stability: a frame only repaints around the pen tip (its cost doesn't grow with the stroke),
+ * the predictor sees one pointer's stream (a palm in the same gesture can't upset it), every
+ * posted task is guarded, and after repeated errors it turns itself off and the page draws its
+ * own ink. The overlay covers only the writing area and exists only while the page asks for it.
  */
 class WetInk(
     private val container: FrameLayout,
     private val onFail: (String) -> Unit,
+    private val onError: (Throwable) -> Unit = {},
     private val makeSurface: (FrameLayout, Int, Int, Int, Int) -> WetSurface = ::FrontBufferSurface,
 ) {
-    private class Stroke(val color: Int, val modeler: Modeler) {
+    companion object {
+        /** A finished stroke the page never claimed (it didn't take the stroke, or lags far behind). */
+        const val UNCLAIMED_MS = 1500L
+        /** A claimed stroke whose commit never came. */
+        const val CLAIMED_MS = 5000L
+        /** How far (CSS px) the page's pen-down may be from where the wet stroke started. */
+        const val CLAIM_SLOP = 6.0
+        const val MAX_STROKES = 64
+        const val MAX_ERRORS = 3
+    }
+
+    private class Stroke(val id: Int, val color: Int, val modeler: Modeler, val startX: Double, val startY: Double, val startedAt: Long) {
         val circles = CircleList()
         var claimed = false
         var finished = false
         var finishedAt = 0L
         var lastCssX = Double.NaN
         var lastCssY = Double.NaN
+        var predicting = true
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -272,16 +373,28 @@ class WetInk(
     private var predBox: RectF? = null
     private var offsetX = 0f
     private var offsetY = 0f
+    private var nextId = 1
+    private var errors = 0
     @Volatile private var failed = false
 
     /** Wet strokes still on screen (for tests and diagnostics). */
     val pending: Int get() = synchronized(this) { strokes.size }
 
+    /** Run posted work so that nothing here can take the app down. */
+    private fun guarded(block: () -> Unit) = synchronized(this) {
+        try {
+            block()
+        } catch (e: Throwable) {
+            fault(e)
+        }
+    }
+
     private val sweep = object : Runnable {
-        override fun run() = synchronized(this@WetInk) {
+        override fun run() = guarded {
             val now = SystemClock.uptimeMillis()
-            // Finished strokes the page never claimed (or never confirmed) don't stay forever.
-            val stale = strokes.filter { it.finished && now - it.finishedAt > (if (it.claimed) 1500 else 350) }
+            val stale = strokes.filter {
+                if (it.finished) now - it.finishedAt > (if (it.claimed) CLAIMED_MS else UNCLAIMED_MS) else now - it.startedAt > 120_000
+            }
             stale.forEach { remove(it) }
             if (strokes.isNotEmpty()) main.postDelayed(this, 150)
         }
@@ -290,31 +403,32 @@ class WetInk(
     /** From the page (any thread). */
     fun setParams(json: String) {
         val p = try { WetParams.parse(json) } catch (_: Exception) { return }
-        main.post { applyParams(p) }
+        main.post { guarded { applyParams(p) } }
     }
 
     private fun applyParams(p: WetParams) {
-        synchronized(this) {
-            params = p
-            if (!p.on) {
-                detachSoon()
-                return
-            }
-            if (failed || p.width < 8 || p.height < 8) return
-            main.removeCallbacks(detachRunnable)
-            val x = (p.left * p.dpr).toInt()
-            val y = (p.top * p.dpr).toInt()
-            val w = (p.width * p.dpr).toInt()
-            val h = (p.height * p.dpr).toInt()
-            try {
-                surface?.place(x, y, w, h) ?: run { surface = makeSurface(container, x, y, w, h) }
-            } catch (e: Throwable) {
-                fail(e)
-            }
+        params = p
+        if (!p.on) {
+            // Whatever is being drawn now ends here; the sweep (or the page) takes it off.
+            active?.let { finish(it) }
+            active = null
+            detachSoon()
+            return
+        }
+        if (failed || p.width < 8 || p.height < 8) return
+        main.removeCallbacks(detachRunnable)
+        val x = (p.left * p.dpr).toInt()
+        val y = (p.top * p.dpr).toInt()
+        val w = (p.width * p.dpr).toInt()
+        val h = (p.height * p.dpr).toInt()
+        try {
+            surface?.place(x, y, w, h) ?: run { surface = makeSurface(container, x, y, w, h) }
+        } catch (e: Throwable) {
+            fail(e)
         }
     }
 
-    private val detachRunnable = Runnable { synchronized(this) { detach() } }
+    private val detachRunnable = Runnable { guarded { detach() } }
 
     /** Leaving the pen for a moment shouldn't rebuild the surface: wait a little first. */
     private fun detachSoon() {
@@ -325,18 +439,30 @@ class WetInk(
     private fun detach() {
         strokes.clear()
         active = null
-        surface?.release()
+        val sf = surface
         surface = null
         predBox = null
+        sf?.release()
     }
 
     private fun fail(e: Throwable) {
+        if (failed) return
         failed = true
-        onFail("低遅延ペンが使えないので通常の描画に切り替えた: ${e.message}")
+        onFail("低遅延ペンを止めて通常の描画に切り替えた: ${e.javaClass.simpleName} ${e.message ?: ""}".trim())
         try {
             detach()
         } catch (_: Throwable) {
         }
+    }
+
+    /** One error drops nothing but the frame; repeated ones turn wet ink off (posted: never mid-dispatch). */
+    private fun fault(e: Throwable) {
+        errors++
+        try {
+            onError(e)
+        } catch (_: Throwable) {
+        }
+        if (errors >= MAX_ERRORS && !failed) main.post { synchronized(this) { fail(e) } }
     }
 
     // ---------- input (called with every touch event before the WebView gets it) ----------
@@ -348,34 +474,48 @@ class WetInk(
             if (!p.on || failed) return
             try {
                 when (ev.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> begin(ev, p, sf, sideButtonHeld)
+                    MotionEvent.ACTION_DOWN -> begin(ev, 0, p, sf, sideButtonHeld)
+                    // The pen landing while a palm (or finger) is already down.
+                    MotionEvent.ACTION_POINTER_DOWN -> if (active == null) begin(ev, ev.actionIndex, p, sf, sideButtonHeld)
                     MotionEvent.ACTION_MOVE -> move(ev, p, sf)
-                    MotionEvent.ACTION_UP -> end(ev, p)
-                    MotionEvent.ACTION_POINTER_UP -> if (ev.getPointerId(ev.actionIndex) == activePointer) end(ev, p)
-                    MotionEvent.ACTION_CANCEL -> active?.let { remove(it) }.also { active = null }
+                    MotionEvent.ACTION_UP -> end(ev, p, sf)
+                    MotionEvent.ACTION_POINTER_UP -> if (ev.getPointerId(ev.actionIndex) == activePointer) end(ev, p, sf)
+                    // Android took the gesture away: keep what was drawn, the page commits it and says done.
+                    MotionEvent.ACTION_CANCEL -> active?.let { s ->
+                        record(sf, s, ev, ev.findPointerIndex(activePointer), MotionEvent.ACTION_CANCEL)?.recycle()
+                        finish(s)
+                        active = null
+                    }
                 }
             } catch (e: Throwable) {
-                fail(e)
+                // Stop drawing this stroke; the page still commits it.
+                active?.let { finish(it) }
+                active = null
+                fault(e)
             }
         }
     }
 
-    private fun begin(ev: MotionEvent, p: WetParams, sf: WetSurface, sideButtonHeld: Boolean) {
+    private fun begin(ev: MotionEvent, index: Int, p: WetParams, sf: WetSurface, sideButtonHeld: Boolean) {
+        // A stroke whose pen-up never came is over now.
+        active?.let { finish(it) }
         active = null
-        if (ev.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS || sideButtonHeld || !sf.isValid()) return
+        if (ev.getToolType(index) != MotionEvent.TOOL_TYPE_STYLUS || sideButtonHeld || !sf.isValid()) return
         val loc = IntArray(2)
         container.getLocationInWindow(loc)
         offsetX = loc[0].toFloat()
         offsetY = loc[1].toFloat()
-        val cx = cssX(ev.getX(0), p)
-        val cy = cssY(ev.getY(0), p)
+        val cx = cssX(ev.getX(index), p)
+        val cy = cssY(ev.getY(index), p)
         if (cx < 0 || cy < 0 || cx > p.width || cy > p.height) return
-        val s = Stroke(p.color, Modeler(ModelerParams.forStabilization(p.stabilization.toDouble())))
-        activePointer = ev.getPointerId(0)
-        push(s, s.modeler.reset(cx, cy, pressure(ev.getPressure(0), p), timeOf(ev, -1)), p)
+        val s = Stroke(nextId++, p.color, Modeler(ModelerParams.forStabilization(p.stabilization.toDouble())), cx, cy, SystemClock.uptimeMillis())
+        activePointer = ev.getPointerId(index)
+        push(s, s.modeler.reset(cx, cy, pressure(ev.getPressure(index), p), timeOf(ev, -1)), p)
         strokes.addLast(s)
+        while (strokes.size > MAX_STROKES) remove(strokes.first())
         active = s
-        sf.recordAndPredict(ev)?.recycle()
+        sf.beginGesture()
+        record(sf, s, ev, index, MotionEvent.ACTION_DOWN)?.recycle()
         render(s, 0, predictFor(s, p, null))
         main.removeCallbacks(sweep)
         main.postDelayed(sweep, 150)
@@ -385,27 +525,46 @@ class WetInk(
         val s = active ?: return
         val i = ev.findPointerIndex(activePointer)
         if (i < 0) return
-        val predicted = sf.recordAndPredict(ev)
         val from = s.circles.count()
         for (h in 0 until ev.historySize) {
             for (q in s.modeler.update(cssX(ev.getHistoricalX(i, h), p), cssY(ev.getHistoricalY(i, h), p), pressure(ev.getHistoricalPressure(i, h), p), timeOf(ev, h))) push(s, q, p)
         }
         for (q in s.modeler.update(cssX(ev.getX(i), p), cssY(ev.getY(i), p), pressure(ev.getPressure(i), p), timeOf(ev, -1))) push(s, q, p)
-        render(s, from, predictFor(s, p, predicted))
+        render(s, from, predictFor(s, p, record(sf, s, ev, i, MotionEvent.ACTION_MOVE)))
     }
 
-    private fun end(ev: MotionEvent, p: WetParams) {
+    private fun end(ev: MotionEvent, p: WetParams, sf: WetSurface) {
         val s = active ?: return
         val i = ev.findPointerIndex(activePointer)
         val from = s.circles.count()
         if (i >= 0) {
             for (q in s.modeler.update(cssX(ev.getX(i), p), cssY(ev.getY(i), p), pressure(ev.getPressure(i), p), timeOf(ev, -1))) push(s, q, p)
+            record(sf, s, ev, i, MotionEvent.ACTION_UP)?.recycle()
         }
         for (q in s.modeler.finish()) push(s, q, p)
+        finish(s)
+        active = null
         render(s, from, null)
+    }
+
+    private fun finish(s: Stroke) {
+        if (s.finished) return
         s.finished = true
         s.finishedAt = SystemClock.uptimeMillis()
-        active = null
+    }
+
+    /** Feed the predictor this stroke's pointer only (a consistent one-pointer stream). */
+    private fun record(sf: WetSurface, s: Stroke, ev: MotionEvent, index: Int, action: Int): MotionEvent? {
+        if (!s.predicting || index < 0) return null
+        val one = singlePointer(ev, index, action)
+        return try {
+            sf.recordAndPredict(one)
+        } catch (_: Throwable) {
+            s.predicting = false
+            null
+        } finally {
+            one.recycle()
+        }
     }
 
     private fun cssX(x: Float, p: WetParams) = ((x - offsetX) / p.dpr - p.left).toDouble()
@@ -446,20 +605,23 @@ class WetInk(
             c.add((q.x * p.dpr).toFloat(), (q.y * p.dpr).toFloat(), r)
         }
         if (predicted != null) {
-            val i = predicted.findPointerIndex(activePointer).takeIf { it >= 0 } ?: 0
             // Predicted in the same (window) coordinates as the recorded events.
-            c.add((cssX(predicted.getX(i), p) * p.dpr).toFloat(), (cssY(predicted.getY(i), p) * p.dpr).toFloat(), r)
+            if (predicted.pointerCount > 0) c.add((cssX(predicted.getX(0), p) * p.dpr).toFloat(), (cssY(predicted.getY(0), p) * p.dpr).toFloat(), r)
             predicted.recycle()
         }
         return if (c.count() > 1) c.snapshot() else null
     }
 
+    /** Paint what this stroke added since circle [from] (+ a fresh prediction), wiping the last prediction. */
     private fun render(s: Stroke, from: Int, predict: FloatArray?) {
         val sf = surface ?: return
         val clear = predBox
-        val redraw = if (clear != null) strokes.map { it.color to it.circles.snapshot() } else emptyList()
+        val redraw = ArrayList<WetRun>()
+        if (clear != null) for (o in strokes) CirclePainter.runsIn(o.color, o.circles, clear, redraw)
         predBox = predict?.let { CirclePainter.bounds(it) }
-        sf.render(WetFrame(clear, redraw, s.color, s.circles.snapshot(), max(0, from - 1), predict))
+        val start = max(0, from - 1)
+        val add = if (s.circles.count() > start) WetRun(s.color, s.circles.copyFrom(start), if (from > 0) 1 else 0) else null
+        sf.render(WetFrame(clear, redraw, add, predict?.let { WetRun(s.color, it, 0) }))
     }
 
     private fun remove(s: Stroke) {
@@ -471,38 +633,35 @@ class WetInk(
             sf.clear()
             return
         }
-        val box = CirclePainter.bounds(s.circles.snapshot()) ?: return
+        val box = s.circles.bounds() ?: return
         predBox?.let { box.union(it) }
         predBox = null
-        sf.render(WetFrame(box, strokes.map { it.color to it.circles.snapshot() }, Color.TRANSPARENT, null, 0, null))
+        val redraw = ArrayList<WetRun>()
+        for (o in strokes) CirclePainter.runsIn(o.color, o.circles, box, redraw)
+        sf.render(WetFrame(box, redraw, null, null))
     }
 
     // ---------- the page's side of the hand-off ----------
 
     /**
-     * The page's pen tool started: is there a wet stroke for this gesture? (It then skips its own
-     * live ink.) Called synchronously from the page's thread; ACTION_DOWN was handled before the
-     * WebView even received the event.
+     * The page's pen tool started at (x, y) (CSS px in the writing area): the id of the wet stroke
+     * that started there (the oldest unclaimed one, in case the page lags several strokes behind),
+     * or 0 when there is none and the page draws its own live ink. Called from the page's thread.
      */
-    fun claim(): Boolean = synchronized(this) {
-        val s = active ?: return false
-        if (s.claimed) return false
+    fun claim(x: Double, y: Double): Int = synchronized(this) {
+        val now = SystemClock.uptimeMillis()
+        val s = strokes.firstOrNull { !it.claimed && now - it.startedAt < 10_000 && hypot(it.startX - x, it.startY - y) <= CLAIM_SLOP } ?: return 0
         s.claimed = true
-        return true
+        return s.id
     }
 
-    /** The page committed a stroke and it is on screen: erase the oldest wet copy. */
-    fun done() {
-        main.post { synchronized(this) { strokes.firstOrNull { it.claimed && it.finished }?.let { remove(it) } } }
+    /** The page committed stroke [id] and it is on screen: erase the wet copy. */
+    fun done(id: Int) {
+        main.post { guarded { strokes.firstOrNull { it.id == id }?.let { remove(it) } } }
     }
 
-    /** The page doesn't want this one (no page under the pen, or it became a shape). */
-    fun cancel() {
-        main.post {
-            synchronized(this) {
-                (active ?: strokes.lastOrNull())?.let { remove(it) }
-                active = null
-            }
-        }
+    /** The page doesn't want stroke [id] (no page under the pen, or it became a shape). */
+    fun cancel(id: Int) {
+        main.post { guarded { strokes.firstOrNull { it.id == id }?.let { remove(it) } } }
     }
 }
