@@ -29,6 +29,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
@@ -95,6 +96,8 @@ class MainActivity : ComponentActivity() {
     private val createDocument = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         onSaveResult(r)
     }
+
+    private val pickTree = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> onBackupFolderPicked(uri) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -416,6 +419,70 @@ class MainActivity : ComponentActivity() {
             false
         }
         callJsWithJson("onFileDone", JSONObject().put("ok", ok))
+    }
+
+    // ---------- automatic backups into a folder the user picked ----------
+
+    private val prefs by lazy { getSharedPreferences("sumi", MODE_PRIVATE) }
+
+    private fun backupTree(): Uri? = prefs.getString("backupTree", null)?.let(Uri::parse)?.takeIf { uri ->
+        contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
+    }
+
+    /** Display name of the backup folder, "" when none (or access was revoked). */
+    fun backupFolderName(): String = backupTree()?.let { DocumentFile.fromTreeUri(this, it)?.name } ?: ""
+
+    fun pickBackupFolder() = runOnUiThread {
+        try {
+            pickTree.launch(backupTree())
+        } catch (_: ActivityNotFoundException) {
+            callJsWithJson("onBackupFolder", JSONObject().put("ok", false))
+        }
+    }
+
+    private fun onBackupFolderPicked(uri: Uri?) {
+        if (uri == null) return callJsWithJson("onBackupFolder", JSONObject().put("ok", false))
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val ok = try {
+            contentResolver.takePersistableUriPermission(uri, flags)
+            prefs.edit().putString("backupTree", uri.toString()).apply()
+            true
+        } catch (_: SecurityException) {
+            false
+        }
+        callJsWithJson("onBackupFolder", JSONObject().put("ok", ok).put("name", if (ok) backupFolderName() else ""))
+    }
+
+    /** Write a backup into the folder and keep only the newest [keep] of them. */
+    fun writeBackup(file: File, name: String, keep: Int = 10) {
+        io.execute {
+            val ok = try {
+                val dir = backupTree()?.let { DocumentFile.fromTreeUri(this, it) } ?: error("バックアップ先のフォルダが選ばれていない")
+                val doc = dir.createFile("application/octet-stream", name) ?: error("ファイルを作れない")
+                contentResolver.openOutputStream(doc.uri, "w")?.use { out -> file.inputStream().use { it.copyTo(out) } } ?: error("書き込めない")
+                dir.listFiles()
+                    .filter { it.name?.let { n -> n.startsWith("sumi-backup-") && n.endsWith(".sumi") } == true }
+                    .sortedByDescending { it.name }
+                    .drop(keep)
+                    .forEach { it.delete() }
+                true
+            } catch (e: Exception) {
+                toast("自動バックアップに失敗: ${e.message}")
+                false
+            } finally {
+                file.delete()
+            }
+            callJsWithJson("onFileDone", JSONObject().put("ok", ok))
+        }
+    }
+
+    /** 集中モード: pin the app to the screen (the system asks the user first). */
+    fun setFocusLock(on: Boolean) = runOnUiThread {
+        try {
+            if (on) startLockTask() else stopLockTask()
+        } catch (e: Exception) {
+            if (on) toast("画面の固定ができなかった: ${e.message}")
+        }
     }
 
     // ---------- files opened with / shared to the app ----------

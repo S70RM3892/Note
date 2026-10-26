@@ -1,6 +1,8 @@
 import type { Settings } from '../store/settings';
 import type { ExamDate } from '../study/countdown';
-import { nativeInk } from '../platform';
+import { native, nativeInk, pickNativeBackupFolder } from '../platform';
+import { maybeAutoBackup } from './autoBackup';
+import { formatDate } from '../ui/dom';
 import { h } from '../ui/dom';
 import { modal, toast } from '../ui/dialogs';
 import type { App } from './app';
@@ -26,6 +28,43 @@ function slider(label: string, min: number, max: number, step: number, value: nu
     },
   });
   return h('div', { class: 'field' }, h('div', { class: 'row' }, h('span', { class: 'field-label', style: 'margin:0' }, label), h('span', { class: 'spacer' }), out), input);
+}
+
+/** APK only: daily backups into a folder, and pinning the app during the exam timer. */
+function apkSection(app: App, set: (p: Partial<Settings>) => void): HTMLElement[] {
+  const s = app.settings.get();
+  const folder = h('div', { class: 'muted', style: 'font-size:13px', 'data-testid': 'backup-folder' });
+  const autoToggle = toggle('毎日自動でバックアップ', 'ライブラリを開いたときに1日1回。フォルダには最新10個を残す', s.autoBackup, (v) => set({ autoBackup: v }));
+  const autoInput = autoToggle.querySelector('input') as HTMLInputElement;
+  const now = h('button', { class: 'btn small', 'data-testid': 'backup-now' }, '今すぐ実行');
+  const render = () => {
+    const name = native?.backupFolder?.() ?? '';
+    const last = app.settings.get().lastAutoBackup;
+    folder.textContent = name ? `保存先：${name}${last ? `（最終 ${formatDate(last)}）` : ''}` : '保存先のフォルダが未設定（Google ドライブ等の同期フォルダを選ぶと端末が壊れても残る）';
+    autoInput.disabled = !name;
+    now.disabled = !name;
+  };
+  const pick = h('button', { class: 'btn small', 'data-testid': 'backup-pick' }, 'フォルダを選ぶ');
+  pick.onclick = async () => {
+    if (await pickNativeBackupFolder()) {
+      set({ autoBackup: true });
+      autoInput.checked = true;
+    }
+    render();
+  };
+  now.onclick = async () => {
+    now.disabled = true;
+    await maybeAutoBackup(app, true);
+    render();
+  };
+  render();
+  return [
+    h('h3', null, '自動バックアップ'),
+    h('div', { class: 'toggle-row' }, folder, h('div', { class: 'row', style: 'gap:6px' }, pick, now)),
+    autoToggle,
+    h('h3', null, '集中モード'),
+    toggle('過去問タイマー中はアプリを画面に固定', '開始すると確認が出る。固定中は他のアプリに逃げられない（タイマー終了・一時停止で解除）。画面は常に点けたまま', s.focusPin, (v) => set({ focusPin: v })),
+  ];
 }
 
 /** APK only: the Japanese handwriting model and background reading for search. */
@@ -130,6 +169,7 @@ export function openSettings(app: App) {
     toggle('2本指タップで元に戻す', '3本指タップでやり直し', s.twoFingerUndo, (v) => set({ twoFingerUndo: v })),
     toggle('配置した写真・スキャンを自動で固定', '位置を決めて選択を外すと固定。投げ縄・消しゴム・手のひらで動かなくなる', s.autoLockPlaced, (v) => set({ autoLockPlaced: v })),
     ...(nativeInk.available() ? inkSection(s, set) : []),
+    ...(native?.backupFolder ? apkSection(app, set) : []),
     h('h3', null, '表示'),
     h(
       'div',
@@ -168,7 +208,7 @@ export function openSettings(app: App) {
     h('h3', null, 'データ'),
     slider('バックアップ催促の間隔', 1, 30, 1, s.backupReminderDays, (v) => `${v}日`, (v) => set({ backupReminderDays: v })),
     storage,
-    h('p', { class: 'muted', style: 'font-size:12px;margin-top:16px' }, 'Sumi Note — データはこの端末内（ブラウザのIndexedDB）にだけ保存される。アンインストールやサイトデータ削除で消えるので、定期的にバックアップを書き出せ。'),
+    h('p', { class: 'muted', style: 'font-size:12px;margin-top:16px' }, native ? 'Sumi Note — データはこのアプリの中にだけ保存される。アンインストールで消えるので、自動バックアップを設定しておけ。' : 'Sumi Note — データはこの端末内（ブラウザのIndexedDB）にだけ保存される。アンインストールやサイトデータ削除で消えるので、定期的にバックアップを書き出せ。'),
   );
   modal('設定', body);
 }

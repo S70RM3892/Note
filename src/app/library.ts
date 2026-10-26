@@ -16,6 +16,7 @@ import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { formatExamDate, upcomingExams } from '../study/countdown';
 import { indexHandwriting } from '../ink/recognize';
+import { maybeAutoBackup } from './autoBackup';
 
 type FolderFilter = 'all' | 'fav' | string;
 
@@ -87,7 +88,13 @@ export class LibraryView implements View {
     this.renderFolders();
     this.renderGrid();
     await this.renderStrip();
-    // APK: read new handwriting while the library is open (the editor isn't writing pages then).
+    // APK: daily backup into the chosen folder, then read new handwriting while the library is
+    // open (the editor isn't writing pages then).
+    setTimeout(() => {
+      if (!this.inkAbort.signal.aborted) void maybeAutoBackup(this.app).then((ok) => {
+        if (ok) void this.renderStrip();
+      });
+    }, 3000);
     if (this.app.settings.get().handwritingIndex) {
       setTimeout(() => {
         if (!this.inkAbort.signal.aborted) void indexHandwriting(this.app.repo, this.inkAbort.signal);

@@ -72,6 +72,8 @@ function beep() {
 
 export interface TimerHost {
   stats: { addExam(label: string, plannedSec: number, usedSec: number): void };
+  /** The clock started (true) or stopped / ran out (false): 集中モード hooks in here. */
+  onTimerRunning?(running: boolean): void;
 }
 
 export class TimerWidget {
@@ -84,6 +86,11 @@ export class TimerWidget {
 
   constructor(private host: TimerHost) {
     if (this.s.visible) this.mount();
+  }
+
+  /** Tell the host whether the exam clock is counting (not after it ran out). */
+  private notify() {
+    this.host.onTimerRunning?.(!!this.s.startedAt && !this.s.ended);
   }
 
   private save() {
@@ -132,6 +139,7 @@ export class TimerWidget {
     this.s = { ...this.s, label, duration: minutes * 60_000, startedAt: null, elapsed: 0, warned: false, ended: false };
     this.save();
     this.mount();
+    this.notify();
   }
 
   private logIfUsed() {
@@ -150,6 +158,7 @@ export class TimerWidget {
     }
     this.save();
     this.mount();
+    this.notify();
   }
 
   private reset() {
@@ -159,6 +168,7 @@ export class TimerWidget {
     this.s.warned = this.s.ended = false;
     this.save();
     this.mount();
+    this.notify();
   }
 
   private update() {
@@ -182,6 +192,7 @@ export class TimerWidget {
         navigator.vibrate?.([400, 150, 400, 150, 400]);
         beep();
         toast(`${this.s.label} 終了。ペンを置け。`, 4000);
+        this.notify();
       }
     }
   }

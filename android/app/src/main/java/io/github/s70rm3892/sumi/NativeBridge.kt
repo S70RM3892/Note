@@ -49,7 +49,11 @@ class NativeBridge(private val activity: MainActivity) {
             return
         }
         p.out.close()
-        if (action == "share") activity.shareFile(p.file, p.name, p.mime) else activity.saveFile(p.file, p.name, p.mime)
+        when (action) {
+            "share" -> activity.shareFile(p.file, p.name, p.mime)
+            "backup" -> activity.writeBackup(p.file, p.name)
+            else -> activity.saveFile(p.file, p.name, p.mime)
+        }
     }
 
     @JavascriptInterface
@@ -63,6 +67,15 @@ class NativeBridge(private val activity: MainActivity) {
 
     @JavascriptInterface
     fun takeIncoming(): String = activity.takeIncoming()
+
+    @JavascriptInterface
+    fun backupFolder(): String = activity.backupFolderName()
+
+    @JavascriptInterface
+    fun pickBackupFolder() = activity.pickBackupFolder()
+
+    @JavascriptInterface
+    fun setFocusLock(on: Boolean) = activity.setFocusLock(on)
 
     @JavascriptInterface
     fun inkStatus(): String = activity.ink.status

@@ -19,6 +19,12 @@ export interface SumiNativeBridge {
   takeIncoming(): string;
   /** What the S Pen side button does ('eraser' | 'lasso' | 'none'); the shell rewrites the pen's touches to match. */
   setPenButtonAction?(action: string): void;
+  /** Name of the folder automatic backups go to ("" = none chosen). */
+  backupFolder?(): string;
+  /** Let the user pick that folder; result via onBackupFolder(json {ok, name}). */
+  pickBackupFolder?(): void;
+  /** 集中モード: pin the app to the screen (true) or release it. */
+  setFocusLock?(on: boolean): void;
   /** Handwriting recognition (ML Kit Digital Ink, Japanese): 'ready' | 'missing' | 'downloading' | 'unsupported'. */
   inkStatus?(): string;
   /** Download the recognition model; result via onInkModel(json {ok, error?}). */
@@ -43,6 +49,7 @@ interface NativeCallbacks {
   onIncoming?: () => void;
   onInk?: (json: string) => void;
   onInkModel?: (json: string) => void;
+  onBackupFolder?: (json: string) => void;
 }
 
 declare global {
@@ -88,8 +95,8 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-/** Hand a file to Android (save dialog or share sheet). */
-export async function nativeFile(blob: Blob, name: string, action: 'save' | 'share'): Promise<boolean> {
+/** Hand a file to Android: save dialog, share sheet, or the automatic-backup folder. */
+export async function nativeFile(blob: Blob, name: string, action: 'save' | 'share' | 'backup'): Promise<boolean> {
   if (!native) return false;
   const id = native.beginFile(name, blob.type || 'application/octet-stream');
   const CHUNK = 768 * 1024; // multiple of 3 → clean base64 chunks
@@ -183,3 +190,17 @@ export const nativeInk = {
 
 let inkSeq = 0;
 const inkWaiting = new Map<string, { resolve: (c: string[]) => void; reject: (e: Error) => void }>();
+
+/** Ask Android for the backup folder. Resolves with its name, or '' if cancelled. */
+export function pickNativeBackupFolder(): Promise<string> {
+  const bridge = native;
+  if (!bridge?.pickBackupFolder) return Promise.resolve('');
+  return new Promise((resolve) => {
+    callbacks().onBackupFolder = (json: string) => {
+      callbacks().onBackupFolder = undefined;
+      const r = JSON.parse(json) as { ok: boolean; name?: string };
+      resolve(r.ok ? r.name || 'フォルダ' : '');
+    };
+    bridge.pickBackupFolder!();
+  });
+}

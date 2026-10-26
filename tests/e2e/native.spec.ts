@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { unzipSync } from 'fflate';
 import { PDFDocument } from 'pdf-lib';
 import { docInfo, line, newNotebook, pen } from './helpers';
 
@@ -29,9 +30,17 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
         setTimeout(() => w.__sumiNative.onFileDone(JSON.stringify({ ok: true })), 10);
       },
       openUrl: () => {},
-      setKeepScreenOn: () => {},
+      setKeepScreenOn: (on: boolean) => (w.__screenOn = on),
       takeIncoming: () => JSON.stringify(w.__incoming.splice(0)),
       setPenButtonAction: (a: string) => (w.__penAction = a),
+      // The shell keeps the chosen folder across launches.
+      backupFolder: () => localStorage.getItem('fake.backupFolder') ?? '',
+      pickBackupFolder: () =>
+        setTimeout(() => {
+          localStorage.setItem('fake.backupFolder', 'Drive/Sumi');
+          w.__sumiNative.onBackupFolder(JSON.stringify({ ok: true, name: 'Drive/Sumi' }));
+        }, 20),
+      setFocusLock: (on: boolean) => (w.__focus ??= []).push(on),
       // Fake recognizer: names a line by its stroke count ("3画") so tests can check the plumbing.
       inkStatus: () => w.__inkStatus ?? 'ready',
       inkDownload: () => setTimeout(() => ((w.__inkStatus = 'ready'), w.__sumiNative.onInkModel(JSON.stringify({ ok: true }))), 20),
@@ -224,4 +233,53 @@ test('handwriting: read in the background for search, and lasso → テキスト
   info = await docInfo(page);
   expect(info.pages[0].strokes).toHaveLength(5);
   expect(info.pages[0].items).toHaveLength(0);
+});
+
+test('APK: daily backup into the chosen folder; 集中モード pins the app while the exam timer runs', async ({ page }) => {
+  test.setTimeout(60_000);
+  await fakeBridge(page);
+  await newNotebook(page, 'バックアップ対象');
+  await pen(page, line(300, 300, 600, 330));
+  await page.getByTestId('back').click();
+
+  // Settings: pick the folder (turns the daily backup on), run it now.
+  await page.locator('.lib-head .icon-btn').last().click();
+  await page.getByText('設定', { exact: true }).click();
+  await expect(page.getByTestId('backup-folder')).toContainText('未設定');
+  await page.getByTestId('backup-pick').click();
+  await expect(page.getByTestId('backup-folder')).toContainText('Drive/Sumi');
+  await page.getByTestId('backup-now').click();
+  await expect(page.getByText('バックアップした')).toBeVisible();
+  let saved = await page.evaluate(() => (window as any).__saved);
+  expect(saved).toHaveLength(1);
+  expect(saved[0].action).toBe('backup');
+  expect(saved[0].name).toMatch(/^sumi-backup-\d{8}-\d{4}\.sumi$/);
+  const files = unzipSync(new Uint8Array(Buffer.from(saved[0].b64, 'base64')));
+  const manifest = JSON.parse(Buffer.from(files['manifest.json']).toString());
+  expect(manifest.notebooks.map((n: any) => n.title)).toContain('バックアップ対象');
+
+  // Backed up today → opening the library doesn't do it again; a day later it does.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500); // settings are saved after 300 ms
+  await page.reload();
+  await page.waitForTimeout(3800);
+  expect(await page.evaluate(() => (window as any).sumi.settings.get().autoBackup)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__saved.length)).toBe(0);
+  await page.evaluate(() => (window as any).sumi.settings.update({ lastAutoBackup: Date.now() - 25 * 3600_000 }));
+  await page.waitForTimeout(500);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => (window as any).__saved.length), { timeout: 10000 }).toBe(1);
+  saved = await page.evaluate(() => (window as any).__saved);
+  expect(saved[0].action).toBe('backup');
+
+  // 集中モード: off by default (screen stays on only); on → pinned while running.
+  await page.evaluate(() => (window as any).sumi.timer.show());
+  await page.getByTestId('timer-toggle').click();
+  expect(await page.evaluate(() => [(window as any).__screenOn, (window as any).__focus ?? []])).toEqual([true, []]);
+  await page.getByTestId('timer-toggle').click();
+  expect(await page.evaluate(() => (window as any).__screenOn)).toBe(false);
+  await page.evaluate(() => (window as any).sumi.settings.update({ focusPin: true }));
+  await page.getByTestId('timer-toggle').click();
+  await page.getByTestId('timer-toggle').click();
+  expect(await page.evaluate(() => (window as any).__focus)).toEqual([false, true, false]);
 });

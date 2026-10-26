@@ -6,6 +6,7 @@ import { StatsTracker } from '../study/stats';
 import { TimerWidget } from '../study/timer';
 import { h } from '../ui/dom';
 import { toast } from '../ui/dialogs';
+import { native } from '../platform';
 import { EditorView } from './editorView';
 import { LibraryView } from './library';
 import { startReview } from './review';
@@ -53,6 +54,8 @@ export class App {
     };
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flush();
+      // The screen wake lock is dropped whenever the page is hidden.
+      else if (this.timer.running && !native) void this.requestWakeLock();
     });
     window.addEventListener('pagehide', flush);
   }
@@ -70,6 +73,30 @@ export class App {
       this.editor.onActivity = () => this.stats.activity();
     } else host.appendChild(this.editor.el);
     return this.editor;
+  }
+
+  private wakeLock: WakeLockSentinel | null = null;
+
+  /** 集中モード while the exam clock runs: keep the screen on, and in the APK optionally pin the app. */
+  onTimerRunning(running: boolean) {
+    if (native) {
+      native.setKeepScreenOn(running);
+      if (this.settings.get().focusPin || !running) native.setFocusLock?.(running);
+      return;
+    }
+    if (running) void this.requestWakeLock();
+    else {
+      void this.wakeLock?.release().catch(() => {});
+      this.wakeLock = null;
+    }
+  }
+
+  private async requestWakeLock() {
+    try {
+      this.wakeLock = (await navigator.wakeLock?.request('screen')) ?? null;
+    } catch {
+      /* not allowed (e.g. hidden page); retried when the page is visible again */
+    }
   }
 
   /** S Pen side button reported by the Android shell (also covers hovering, which pointer events don't). */

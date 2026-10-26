@@ -84,6 +84,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.activity:activity-ktx:1.13.0")
     implementation("androidx.webkit:webkit:1.18.0")
+    implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
     implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
 
