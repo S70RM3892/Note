@@ -372,6 +372,9 @@ export class EditorView implements View {
         ...colors(s.highlighterColors, s.highlighter.color, (c) => set({ highlighter: { ...s.highlighter, color: c } })),
         h('div', { class: 'tb-sep' }),
         ...sizes(HL_SIZES, s.highlighter.width, (v) => set({ highlighter: { ...s.highlighter, width: v } }), (v) => 4 + v * 0.5),
+        h('div', { class: 'tb-sep' }),
+        h('button', { class: 'chip' + (!s.highlighterStraight ? ' on' : ''), 'data-testid': 'hl-free', onclick: () => set({ highlighterStraight: false }) }, 'フリー'),
+        h('button', { class: 'chip' + (s.highlighterStraight ? ' on' : ''), style: 'margin-left:6px', 'data-testid': 'hl-straight', onclick: () => set({ highlighterStraight: true }) }, '直線'),
       ];
     } else if (t === 'eraser') {
       nodes = [

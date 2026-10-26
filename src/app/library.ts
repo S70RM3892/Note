@@ -15,6 +15,8 @@ import { exportNotebookPdfDialog } from './exportDialog';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { formatExamDate, upcomingExams } from '../study/countdown';
+import { heatmap, lastNDays, streak } from '../study/heatmap';
+import { addTodo, pruneTodos, removeTodo, toggleTodo, visibleTodos, type Todo } from '../study/todo';
 import { indexHandwriting } from '../ink/recognize';
 import { maybeAutoBackup } from './autoBackup';
 
@@ -153,6 +155,7 @@ export class LibraryView implements View {
             ),
           )
         : null,
+      this.todoCard(),
       h(
         'div',
         { class: 'card' },
@@ -171,6 +174,7 @@ export class LibraryView implements View {
           days.map((d, i) => h('div', { class: 'bar' + (i === days.length - 1 ? ' today' : ''), title: formatDuration(d.sec) }, h('i', { style: `height:${Math.max(2, (d.sec / max) * 34)}px` }), d.label)),
         ),
       ),
+      this.historyCard(stats.data.days),
       h(
         'div',
         { class: 'card' },
@@ -208,6 +212,88 @@ export class LibraryView implements View {
           )
         : null,
     ]);
+  }
+
+  /** 今日やること: a short list for the day; unfinished items carry over to tomorrow. */
+  private todoCard(): HTMLElement {
+    const { settings } = this.app;
+    const pruned = pruneTodos(settings.get().todos);
+    if (pruned.length !== settings.get().todos.length) settings.update({ todos: pruned });
+    const save = (todos: Todo[]) => {
+      settings.update({ todos });
+      paint();
+    };
+    const list = h('div', { class: 'todo-list' });
+    const count = h('small', { class: 'muted' });
+    const input = h('input', {
+      class: 'input',
+      placeholder: '例: 数学 2019 第4問を解き直す',
+      enterkeyhint: 'done',
+      'data-testid': 'todo-input',
+      onkeydown: (e: KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.isComposing) add();
+      },
+    });
+    const add = () => {
+      if (!input.value.trim()) return;
+      save(addTodo(settings.get().todos, input.value));
+      input.value = '';
+      input.focus();
+    };
+    const paint = () => {
+      const items = visibleTodos(settings.get().todos);
+      const done = items.filter((t) => t.doneOn).length;
+      count.textContent = items.length ? ` ${done}/${items.length}` : '';
+      clear(list);
+      append(
+        list,
+        items.map((t) =>
+          h(
+            'div',
+            { class: 'todo' + (t.doneOn ? ' done' : ''), 'data-testid': 'todo' },
+            h('button', { class: 'todo-check', 'aria-label': t.doneOn ? '未完了に戻す' : '完了', 'aria-pressed': t.doneOn ? 'true' : 'false', onclick: () => save(toggleTodo(settings.get().todos, t.id)) }, t.doneOn ? icon('check', 14) : null),
+            h('span', { class: 'todo-text' }, t.text),
+            h('button', { class: 'icon-btn todo-del', 'aria-label': '削除', onclick: () => save(removeTodo(settings.get().todos, t.id)) }, icon('close', 14)),
+          ),
+        ),
+      );
+    };
+    paint();
+    return h(
+      'div',
+      { class: 'card todo-card', 'data-testid': 'todos' },
+      h('h3', null, '今日やること', count),
+      list,
+      h('div', { class: 'row', style: 'gap:6px;margin-top:6px' }, input, h('button', { class: 'btn small', 'aria-label': '追加', onclick: add }, icon('plus', 16))),
+    );
+  }
+
+  /** 学習の記録: 16 weeks of study time as a calendar heatmap, the streak and recent totals. */
+  private historyCard(days: Record<string, number>): HTMLElement {
+    const grid = heatmap(days);
+    const st = streak(days);
+    return h(
+      'div',
+      { class: 'card history', 'data-testid': 'history' },
+      h('h3', null, '学習の記録'),
+      h(
+        'div',
+        { class: 'row', style: 'gap:10px;align-items:baseline' },
+        h('div', { class: 'big-num', 'data-testid': 'streak' }, `${st}`, h('small', { class: 'muted', style: 'font-size:14px' }, ' 日連続')),
+        h('span', { class: 'muted', style: 'font-size:12px' }, `7日 ${formatDuration(lastNDays(days, 7))}・30日 ${formatDuration(lastNDays(days, 30))}`),
+      ),
+      h(
+        'div',
+        { class: 'heat' },
+        grid.map((col) =>
+          h(
+            'div',
+            { class: 'heat-col' },
+            col.map((c) => h('i', { class: `l${c.level}${c.future ? ' future' : ''}`, title: c.future ? '' : `${c.key} ${formatDuration(c.sec)}` })),
+          ),
+        ),
+      ),
+    );
   }
 
   private renderFolders() {

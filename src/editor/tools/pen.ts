@@ -62,6 +62,12 @@ export class PenTool implements Tool {
     const first = this.model.reset(s.wx - hit.ox, s.wy - hit.oy, s.p, s.t);
     this.push(first.x, first.y, first.p, true);
     this.last = s;
+    // 直線マーカー: the stroke is a straight line from the start (the snapped-line path below).
+    if (this.kind === 'highlighter' && st.highlighterStraight) {
+      this.snapped = { kind: 'line', pts: [{ x: first.x, y: first.y }, { x: first.x, y: first.y }], closed: false };
+      this.drawSnapped();
+      return;
+    }
     this.armHold(s);
   }
 

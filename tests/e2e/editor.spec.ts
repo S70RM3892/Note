@@ -474,3 +474,33 @@ test('お気に入りペン: save the current pen, switch back to it in one tap,
   await page.getByTestId('pen-fav-remove').click();
   expect(await page.evaluate(() => (window as any).sumi.settings.get().penFavorites)).toEqual([]);
 });
+
+test('直線マーカー: a wobbly highlight becomes a straight, level line', async ({ page }) => {
+  await newNotebook(page);
+  await page.getByTestId('tool-highlighter').click();
+  await page.getByTestId('hl-straight').click();
+  await pen(page, [
+    [300, 400],
+    [380, 404],
+    [460, 397],
+    [540, 405],
+    [620, 402],
+  ]);
+  const s = await page.evaluate(() => {
+    const st = (window as any).sumi.view.doc.pages[0].strokes[0];
+    return { kind: st.kind, shape: !!st.shape, pts: Array.from(st.pts as Float32Array) };
+  });
+  expect(s.kind).toBe('highlighter');
+  expect(s.shape).toBe(true);
+  expect(s.pts.length).toBe(6);
+  expect(s.pts[1]).toBeCloseTo(s.pts[4], 3); // level: snapped to horizontal
+  expect(s.pts[3] - s.pts[0]).toBeGreaterThan(150);
+  // Back to free-hand.
+  await page.getByTestId('hl-free').click();
+  await pen(page, [
+    [300, 500],
+    [380, 520],
+    [460, 490],
+  ]);
+  expect(await page.evaluate(() => !!(window as any).sumi.view.doc.pages[0].strokes[1].shape)).toBe(false);
+});

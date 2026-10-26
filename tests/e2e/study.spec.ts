@@ -368,3 +368,38 @@ test('大問ラップ: split times per question, saved with the exam log', async
   await page.reload();
   await expect(page.getByTestId('exam-log')).toContainText('大問 3/5/1分');
 });
+
+test('学習の記録 heatmap/streak and 今日やること carry over', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-26T20:00:00+09:00'));
+  await page.goto('/');
+  // Studied the last three days (today included) and once a week earlier.
+  await page.evaluate(() => {
+    const s = (window as any).sumi.stats;
+    Object.assign(s.data.days, { '2026-10-26': 3600, '2026-10-25': 7200, '2026-10-24': 900, '2026-10-20': 12000 });
+    s.save(true);
+  });
+  const hist = page.getByTestId('history');
+  await expect(page.getByTestId('streak')).toHaveText(/^3\s*日連続/);
+  await expect(hist).toContainText('7日 6時間');
+  // 15 min / 1 h / 2 h / 3 h 20 min → one cell on each level.
+  for (const l of [1, 2, 3, 4]) await expect(hist.locator(`.heat i.l${l}`)).toHaveCount(1);
+
+  const todos = page.getByTestId('todos');
+  const input = page.getByTestId('todo-input');
+  await input.fill('数学 2019 第4問 解き直し');
+  await input.press('Enter');
+  await input.fill('英単語 100');
+  await todos.getByRole('button', { name: '追加' }).click();
+  await expect(todos.getByTestId('todo')).toHaveCount(2);
+  await todos.getByTestId('todo').nth(1).getByRole('button', { name: '完了' }).click();
+  await expect(todos.locator('h3')).toContainText('1/2');
+  await expect(todos.locator('.todo.done')).toHaveText('英単語 100');
+  await page.screenshot({ path: 'test-results/library-history-todo.png' });
+
+  // Tomorrow: the open item is still there, the finished one is cleared.
+  await expect.poll(() => page.evaluate(() => (window as any).sumi.repo.kvGet('settings').then((s: any) => s?.todos?.length))).toBe(2);
+  await page.clock.setFixedTime(new Date('2026-10-27T07:00:00+09:00'));
+  await page.reload();
+  await expect(todos.getByTestId('todo')).toHaveCount(1);
+  await expect(todos.getByTestId('todo')).toHaveText('数学 2019 第4問 解き直し');
+});

@@ -1,5 +1,6 @@
 import type { PenStyle } from '../core/types';
 import { DEFAULT_EXAMS, type ExamDate } from '../study/countdown';
+import type { Todo } from '../study/todo';
 
 export interface PenPreset {
   style: PenStyle;
@@ -13,6 +14,8 @@ export interface Settings {
   /** お気に入りペン: saved pen type + colour + width, one tap away in the toolbar. */
   penFavorites: PenPreset[];
   highlighter: { color: string; width: number };
+  /** 直線マーカー: highlighter strokes are straight lines (snapping to 0/45/90°). */
+  highlighterStraight: boolean;
   penColors: string[];
   highlighterColors: string[];
   pressureGamma: number; // <1: lighter touch gives more width
@@ -39,6 +42,8 @@ export interface Settings {
   lastBackup: number;
   /** Countdown targets shown in the library. */
   exams: ExamDate[];
+  /** 今日やること: open items roll over to the next day. */
+  todos: Todo[];
   /** APK: read handwriting in the background so the search finds it. */
   handwritingIndex: boolean;
   /** APK: back everything up once a day into the chosen folder. */
@@ -59,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pen: { style: 'ballpoint', color: '#1a1a1a', width: 2.2 },
   penFavorites: [],
   highlighter: { color: '#fff176', width: 16 },
+  highlighterStraight: false,
   penColors: ['#1a1a1a', '#1e4fd8', '#d32f2f', RED_SHEET_ORANGE, '#2e7d32', '#7b1fa2'],
   highlighterColors: ['#fff176', '#f8bbd0', '#b3e5fc', '#c5e1a5', '#ffcc80', MEMORY_GREEN],
   pressureGamma: 0.8,
@@ -81,6 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
   backupReminderDays: 7,
   lastBackup: 0,
   exams: DEFAULT_EXAMS,
+  todos: [],
   handwritingIndex: true,
   autoBackup: false,
   lastAutoBackup: 0,
