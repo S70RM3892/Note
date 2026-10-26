@@ -950,7 +950,7 @@ select.input {
 }
 
 .preview-line {
-  height: 46px;
+  display: block;
   border-radius: 10px;
   background: #fff;
   border: 1px solid var(--line);

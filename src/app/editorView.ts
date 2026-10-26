@@ -9,6 +9,8 @@ import { exportPng, thumbnail, waitForAssets } from '../pdf/export';
 import { pdfToPages } from '../pdf/import';
 import { exportBackup } from '../store/backup';
 import { RED_SHEET_ORANGE, type Settings } from '../store/settings';
+import { paintStroke } from '../core/ink';
+import type { Stroke } from '../core/types';
 import { RedSheet } from '../study/redsheet';
 import { h } from '../ui/dom';
 import { menu, modal, pickFiles, popover, promptDialog, safeFileName, shareOrDownload, toast } from '../ui/dialogs';
@@ -342,18 +344,23 @@ export class EditorView implements View {
     const customColor = (list: 'penColors' | 'highlighterColors') => {
       const input = h('input', {
         type: 'color',
+        value: list === 'penColors' ? s.pen.color : s.highlighter.color,
         style: 'width:44px;height:36px;border:0;background:none;padding:0',
         onchange: (e: Event) => {
           const c = (e.target as HTMLInputElement).value;
           const cur = st.get();
           const arr = [...cur[list]];
-          arr[arr.length - 1 > 0 ? (list === 'penColors' ? 5 : 4) : 0] = c;
+          // Replace the selected swatch (or the last one) with the custom colour.
+          const selected = list === 'penColors' ? cur.pen.color : cur.highlighter.color;
+          const i = arr.findIndex((x) => x.toLowerCase() === selected.toLowerCase());
+          arr[i >= 0 ? i : arr.length - 1] = c;
           if (list === 'penColors') set({ penColors: arr, pen: { ...cur.pen, color: c } });
           else set({ highlighterColors: arr, highlighter: { ...cur.highlighter, color: c } });
         },
       });
-      return h('div', { class: 'row', style: 'margin-top:8px' }, h('span', { class: 'muted', style: 'font-size:13px' }, 'カスタム色（パレットの一部を置換）'), h('span', { class: 'spacer' }), input);
+      return h('div', { class: 'row', style: 'margin-top:8px' }, h('span', { class: 'muted', style: 'font-size:13px' }, '選択中の色を好きな色に置き換え'), h('span', { class: 'spacer' }), input);
     };
+    if (t === 'pen' || t === 'highlighter') wrap.append(this.strokePreview(t));
     if (t === 'pen') {
       wrap.append(
         h('h4', null, 'ペンの種類'),
@@ -410,6 +417,40 @@ export class EditorView implements View {
       wrap.append(h('p', { class: 'muted', style: 'font-size:13px;margin:0' }, 'タップした位置に文字を入力。既存の文字をタップで編集。S ペンの手書き入力（Android の手書き変換）も使える。'));
     }
     popover(anchor, wrap);
+  }
+
+  /** Live sample stroke for the pen/highlighter popover. */
+  private strokePreview(kind: 'pen' | 'highlighter'): HTMLCanvasElement {
+    const W = 296, H = 54;
+    const dpr = window.devicePixelRatio || 1;
+    const cv = h('canvas', { class: 'preview-line', width: W * dpr, height: H * dpr, style: `width:${W}px;height:${H}px` });
+    const draw = () => {
+      const s = this.app.settings.get();
+      const ctx = cv.getContext('2d')!;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const n = 70;
+      const pts = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const u = i / (n - 1);
+        pts[i * 3] = 18 + u * (W - 36);
+        pts[i * 3 + 1] = H / 2 + Math.sin(u * Math.PI * 2.2) * (H * 0.22);
+        pts[i * 3 + 2] = Math.pow(0.15 + 0.75 * Math.sin(u * Math.PI), s.pressureGamma);
+      }
+      const stroke: Stroke =
+        kind === 'pen'
+          ? { id: 'preview', kind: 'pen', style: s.pen.style, color: s.pen.color, width: s.pen.width, pts }
+          : { id: 'preview', kind: 'highlighter', style: 'marker', color: s.highlighter.color, width: s.highlighter.width, pts };
+      paintStroke(ctx, stroke, false);
+    };
+    draw();
+    const unsub = this.app.settings.subscribe(() => {
+      if (!cv.isConnected) return unsub();
+      draw();
+    });
+    return cv;
   }
 
   // ---------- selection menu ----------
