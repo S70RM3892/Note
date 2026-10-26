@@ -71,13 +71,18 @@ export class LiveLayer {
     this.canvas.style.opacity = highlighter && darkPaper ? String(HIGHLIGHT_ALPHA) : '1';
   }
 
-  /** Add a sample (CSS px, radius in CSS px). */
-  add(sx: number, sy: number, r: number) {
+  /** Add a sample (CSS px, radius in CSS px). Pass show=false to batch, then call show(). */
+  add(sx: number, sy: number, r: number, show = true) {
     const d = this.dpr;
     this.painter.add(sx * d, sy * d, r * d);
     const pad = r * d + 2;
     this.dirty = grow(this.dirty, sx * d, sy * d, pad);
     this.inkBox = grow(this.inkBox, sx * d, sy * d, pad);
+    if (show) this.flush();
+  }
+
+  /** Copy everything added since the last show to the screen. */
+  show() {
     this.flush();
   }
 

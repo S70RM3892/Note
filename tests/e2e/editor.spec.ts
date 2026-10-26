@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { docInfo, flush, line, newNotebook, pageToScreen, pen, penHover, tapFingers, touch, wave } from './helpers';
+import { docInfo, flush, line, newNotebook, pageToScreen, pen, penHover, tapFingers, touch, touchStep, wave } from './helpers';
 
 test.describe('ink', () => {
   test('pen strokes are drawn, saved and survive a reload', async ({ page }) => {
@@ -47,7 +47,7 @@ test.describe('ink', () => {
     expect((await docInfo(page)).pages[0].strokes.length).toBe(1);
     await page.getByTestId('redo').click();
     expect((await docInfo(page)).pages[0].strokes.length).toBe(2);
-    await page.waitForTimeout(500); // palm-rejection window after the pen
+    await page.waitForTimeout(1000); // palm-rejection window after the pen
     await tapFingers(page, [
       [500, 600],
       [600, 600],
@@ -94,6 +94,37 @@ test.describe('ink', () => {
     ]);
     const after = await page.evaluate(() => (window as any).sumi.editor.vp.camY);
     expect(after).toBe(before);
+  });
+
+  test('a palm that lands before the pen stops scrolling once the pen hovers', async ({ page }) => {
+    await newNotebook(page);
+    await page.waitForTimeout(600);
+    const y0 = await page.evaluate(() => (window as any).sumi.editor.vp.camY);
+    // (pauses keep Chrome from coalescing the moves into one event)
+    await touchStep(page, 'touchStart', [[700, 600]]);
+    await page.waitForTimeout(30);
+    await touchStep(page, 'touchMove', [[700, 580]]);
+    await page.waitForTimeout(30);
+    await touchStep(page, 'touchMove', [[700, 540]]);
+    await page.waitForTimeout(30);
+    const y1 = await page.evaluate(() => (window as any).sumi.editor.vp.camY);
+    expect(y1).toBeGreaterThan(y0); // it was scrolling…
+    await penHover(page, 400, 300);
+    await page.waitForTimeout(30);
+    await touchStep(page, 'touchMove', [[700, 450]]);
+    await page.waitForTimeout(30);
+    await touchStep(page, 'touchMove', [[700, 350]]);
+    await page.waitForTimeout(30);
+    await touchStep(page, 'touchEnd', []);
+    const y2 = await page.evaluate(() => (window as any).sumi.editor.vp.camY);
+    expect(y2).toBeCloseTo(y1, 1); // …and stopped when the pen arrived
+    // A two-finger "tap" right after writing is a palm, not an undo.
+    await pen(page, wave(300, 300, 200));
+    await tapFingers(page, [
+      [600, 600],
+      [700, 620],
+    ]);
+    expect((await docInfo(page)).pages[0].strokes.length).toBe(1);
   });
 
   test('pinch zooms and one finger pans', async ({ page }) => {

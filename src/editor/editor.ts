@@ -582,6 +582,23 @@ export class Editor {
       return;
     }
 
+    // The pen came into range while fingers/palm are down: that contact was the palm.
+    if (e.pointerType === 'pen' && this.touches.size && this.mode !== 'select') {
+      for (const id of this.touches.keys()) this.ignored.add(id);
+      if (this.mode === 'draw' && this.activeTool) {
+        const t = this.activeTool;
+        (t.abort ?? t.cancel).call(t);
+        this.activeTool = null;
+        this.toolPtr = null;
+        this.toolPtrType = '';
+      }
+      this.touches.clear();
+      this.mode = 'none';
+      this.stopMomentum();
+      this.renderer.gesture = false;
+      this.renderer.request();
+    }
+
     // Hover (pen in range, nothing pressed) – cursor preview.
     if (e.pointerType === 'pen' && this.toolPtr === null && e.buttons === 0 && !this.readOnly) {
       const tool = this.toolFor(e);
@@ -647,6 +664,9 @@ export class Editor {
       const w = this.vp.toWorld(t.x, t.y);
       if (this.toggleTapeAt(w.x, w.y)) return;
       if (this.selection.active && !this.selection.hitHandle(t.x, t.y)) this.selection.clear();
+    } else if (performance.now() - this.lastPen < 900) {
+      // A palm landing right after writing looks like a multi-finger tap: ignore it.
+      return;
     } else if (fingers === 2 && this.settings.get().twoFingerUndo) {
       this.undo();
       this.toast?.('元に戻す');

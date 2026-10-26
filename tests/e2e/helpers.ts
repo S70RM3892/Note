@@ -57,6 +57,12 @@ export async function touch(page: Page, frames: [number, number][][]) {
   await c.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
+/** Low-level touch control for interleaving with pen events. */
+export async function touchStep(page: Page, type: 'touchStart' | 'touchMove' | 'touchEnd', pts: [number, number][]) {
+  const c = await cdp(page);
+  await c.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+}
+
 export async function tapFingers(page: Page, positions: [number, number][]) {
   await touch(page, [positions]);
 }

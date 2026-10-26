@@ -59,7 +59,7 @@ export class PenTool implements Tool {
     this.holdTimer = window.setTimeout(() => this.trySnap(), HOLD_MS);
   }
 
-  private push(wx: number, wy: number, p: number, force = false) {
+  private push(wx: number, wy: number, p: number, force = false, show = true) {
     const h = this.hit!;
     const x = wx - h.ox, y = wy - h.oy;
     const n = this.pts.length;
@@ -69,7 +69,7 @@ export class PenTool implements Tool {
     }
     this.pts.push(x, y, p);
     const vp = this.ed.vp;
-    this.ed.live.add(vp.toScreenX(wx), vp.toScreenY(wy), this.radius(p) * vp.zoom);
+    this.ed.live.add(vp.toScreenX(wx), vp.toScreenY(wy), this.radius(p) * vp.zoom, show);
   }
 
   move(samples: Sample[], predicted: Sample[]) {
@@ -97,9 +97,10 @@ export class PenTool implements Tool {
       this.sm.x += (s.wx - this.sm.x) * (1 - k);
       this.sm.y += (s.wy - this.sm.y) * (1 - k);
       this.sm.p += (s.p - this.sm.p) * 0.6;
-      this.push(this.sm.x, this.sm.y, this.sm.p);
+      this.push(this.sm.x, this.sm.y, this.sm.p, false, false);
       if (Math.hypot(s.sx - this.hold.x, s.sy - this.hold.y) > HOLD_SLOP) this.armHold(s);
     }
+    this.ed.live.show();
     // Prediction: extend from the current smoothed tip to where the pen is heading.
     const vp = this.ed.vp;
     const n = this.pts.length;
