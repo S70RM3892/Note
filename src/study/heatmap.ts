@@ -61,3 +61,18 @@ export function lastNDays(days: Record<string, number>, n: number, now = new Dat
   for (let i = 0; i < n; i++) s += days[dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i).getTime())] ?? 0;
   return s;
 }
+
+/**
+ * This week (Monday to today) against the same days of last week, so a Wednesday is compared
+ * with last Monday–Wednesday rather than a whole week.
+ */
+export function weekCompare(days: Record<string, number>, now = new Date()): { thisWeek: number; lastWeek: number } {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dow = (today.getDay() + 6) % 7;
+  let thisWeek = 0, lastWeek = 0;
+  for (let i = 0; i <= dow; i++) {
+    thisWeek += days[dayKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow + i).getTime())] ?? 0;
+    lastWeek += days[dayKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow - 7 + i).getTime())] ?? 0;
+  }
+  return { thisWeek, lastWeek };
+}

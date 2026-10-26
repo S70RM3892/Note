@@ -29,3 +29,14 @@ describe('study heatmap', () => {
     expect(lastNDays({ '2026-10-28': 60, '2026-10-22': 60, '2026-10-21': 60 }, 7, now)).toBe(120);
   });
 });
+
+describe('今週と先週', () => {
+  it('compares Monday..today with the same days last week', async () => {
+    const { weekCompare } = await import('../../src/study/heatmap');
+    // 2026-10-28 is a Wednesday.
+    const days = { '2026-10-26': 3600, '2026-10-28': 1800, '2026-10-29': 999, '2026-10-19': 600, '2026-10-21': 600, '2026-10-22': 5000, '2026-10-25': 7000 };
+    expect(weekCompare(days, new Date(2026, 9, 28, 20))).toEqual({ thisWeek: 5400, lastWeek: 1200 });
+    // On a Monday only Mondays count.
+    expect(weekCompare(days, new Date(2026, 9, 26, 8))).toEqual({ thisWeek: 3600, lastWeek: 600 });
+  });
+});

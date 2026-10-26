@@ -1837,3 +1837,23 @@ select.input {
   margin-left: auto;
   flex: none;
 }
+
+.goal {
+  margin-top: 4px;
+}
+.goal-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+.goal-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+.goal-bar i.done {
+  background: #2e7d32;
+}

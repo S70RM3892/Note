@@ -44,6 +44,8 @@ export interface Settings {
   lastBackup: number;
   /** Countdown targets shown in the library. */
   exams: ExamDate[];
+  /** Daily goal for writing time in minutes (0 = none). */
+  dailyGoalMin: number;
   /** 今日やること: open items roll over to the next day. */
   todos: Todo[];
   /** APK: read handwriting in the background so the search finds it. */
@@ -100,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lastBackup: 0,
   exams: DEFAULT_EXAMS,
   todos: [],
+  dailyGoalMin: 0,
   handwritingIndex: true,
   autoBackup: false,
   lastAutoBackup: 0,

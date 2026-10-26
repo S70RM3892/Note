@@ -15,7 +15,7 @@ import { exportNotebookPdfDialog } from './exportDialog';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { formatExamDate, upcomingExams } from '../study/countdown';
-import { heatmap, lastNDays, streak } from '../study/heatmap';
+import { heatmap, lastNDays, streak, weekCompare } from '../study/heatmap';
 import { subjectBreakdown } from '../study/subjects';
 import { addTodo, pruneTodos, removeTodo, toggleTodo, visibleTodos, type Todo } from '../study/todo';
 import { indexHandwriting } from '../ink/recognize';
@@ -176,6 +176,7 @@ export class LibraryView implements View {
         { class: 'card' },
         h('h3', null, '今日の学習時間'),
         h('div', { class: 'big-num' }, formatDuration(stats.today())),
+        s.dailyGoalMin ? this.goalBar(stats.today(), s.dailyGoalMin * 60) : null,
         h(
           'div',
           { class: 'bars' },
@@ -277,6 +278,31 @@ export class LibraryView implements View {
     );
   }
 
+  /** Progress towards the daily goal. */
+  private goalBar(sec: number, goal: number): HTMLElement {
+    const done = sec >= goal;
+    return h(
+      'div',
+      { class: 'goal', 'data-testid': 'goal' },
+      h('div', { class: 'goal-bar' }, h('i', { style: `width:${Math.min(100, (sec / goal) * 100)}%`, class: done ? 'done' : '' })),
+      h('small', { class: 'muted' }, done ? `目標 ${formatDuration(goal)} 達成` : `目標 ${formatDuration(goal)}・あと ${formatDuration(goal - sec)}`),
+    );
+  }
+
+  /** This week so far against the same days of last week. */
+  private weekLine(days: Record<string, number>): HTMLElement {
+    const { thisWeek, lastWeek } = weekCompare(days);
+    const diff = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : null;
+    return h(
+      'div',
+      { class: 'muted', style: 'font-size:12px;margin-top:2px', 'data-testid': 'week' },
+      `今週 ${formatDuration(thisWeek)}`,
+      lastWeek > 0 || thisWeek > 0 ? `（先週の同じ曜日まで ${formatDuration(lastWeek)}` : '',
+      diff !== null ? h('b', { style: `color:${diff >= 0 ? 'var(--accent)' : 'var(--danger)'}` }, ` ${diff >= 0 ? '+' : ''}${diff}%`) : '',
+      lastWeek > 0 || thisWeek > 0 ? '）' : '',
+    );
+  }
+
   /** 学習の記録: 16 weeks of study time as a calendar heatmap, the streak and recent totals. */
   private historyCard(days: Record<string, number>, byNb: Record<string, Record<string, number>>): HTMLElement {
     const grid = heatmap(days);
@@ -293,6 +319,7 @@ export class LibraryView implements View {
         h('div', { class: 'big-num', 'data-testid': 'streak' }, `${st}`, h('small', { class: 'muted', style: 'font-size:14px' }, ' 日連続')),
         h('span', { class: 'muted', style: 'font-size:12px' }, `7日 ${formatDuration(lastNDays(days, 7))}・30日 ${formatDuration(lastNDays(days, 30))}`),
       ),
+      this.weekLine(days),
       h(
         'div',
         { class: 'heat' },

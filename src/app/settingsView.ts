@@ -234,6 +234,16 @@ export function openSettings(app: App) {
     ),
     h('h3', null, '入試日（ライブラリにカウントダウン）'),
     examEditor(s.exams, (exams) => set({ exams })),
+    h(
+      'div',
+      { class: 'field' },
+      h('label', null, '1日の目標（ペンで書いている時間）'),
+      chipGroup(
+        [0, 60, 120, 180, 240, 300].map((m) => ({ id: String(m), label: m ? `${m / 60}時間` : 'なし' })),
+        String(s.dailyGoalMin),
+        (v) => set({ dailyGoalMin: Number(v) }),
+      ),
+    ),
     h('h3', null, '睡眠'),
     toggle('就寝リマインダー', '就寝時刻を過ぎたら上部に表示', s.bedtimeEnabled, (v) => set({ bedtimeEnabled: v })),
     h('div', { class: 'toggle-row' }, h('div', null, '就寝時刻'), time(s.bedtime, (v) => set({ bedtime: v }))),

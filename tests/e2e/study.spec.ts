@@ -382,6 +382,11 @@ test('学習の記録 heatmap/streak and 今日やること carry over', async (
   const hist = page.getByTestId('history');
   await expect(page.getByTestId('streak')).toHaveText(/^3\s*日連続/);
   await expect(hist).toContainText('7日 6時間');
+  // Monday 10/26: only Monday vs last Monday (10/19, nothing).
+  await expect(page.getByTestId('week')).toContainText('今週 1時間');
+  await page.evaluate(() => (window as any).sumi.settings.update({ dailyGoalMin: 180 }));
+  await page.evaluate(() => (window as any).sumi.stats.save(true));
+  await expect(page.getByTestId('goal')).toContainText('目標 3時間・あと 2時間');
   // 15 min / 1 h / 2 h / 3 h 20 min → one cell on each level.
   for (const l of [1, 2, 3, 4]) await expect(hist.locator(`.heat i.l${l}`)).toHaveCount(1);
 
