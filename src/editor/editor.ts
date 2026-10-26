@@ -131,7 +131,8 @@ export class Editor {
       if (!doc) return;
       for (const p of doc.pages) {
         const pdfHit = p.pdf?.asset === asset && (index === undefined || p.pdf.index === index);
-        if (pdfHit || p.items.some((i) => i.type === 'image' && i.asset === asset)) this.renderer.invalidate(p.id, null);
+        const itemHit = p.items.some((i) => (i.type === 'image' && i.asset === asset) || (i.type === 'scan' && (i.vector === asset || i.photo === asset)));
+        if (pdfHit || itemHit) this.renderer.invalidate(p.id, null);
       }
     });
 

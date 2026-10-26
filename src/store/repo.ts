@@ -182,7 +182,13 @@ export class Repo {
     const pages = await this.db.getAll<Page>('pages');
     for (const p of pages) {
       if (p.pdf) used.add(p.pdf.asset);
-      for (const it of p.items) if (it.type === 'image') used.add(it.asset);
+      for (const it of p.items) {
+        if (it.type === 'image') used.add(it.asset);
+        else if (it.type === 'scan') {
+          used.add(it.vector);
+          if (it.photo) used.add(it.photo);
+        }
+      }
     }
     const unused = assetIds.filter((id) => !used.has(id));
     if (unused.length) await this.db.write({ del: unused.map((id) => ['assets', id] as ['assets', string]) });

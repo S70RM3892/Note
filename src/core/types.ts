@@ -68,7 +68,8 @@ export interface VectorDoc {
   h: number;
   /** Tile size the paths are grouped by (for culling while zoomed in). */
   tile: number;
-  layers: { color: string; tiles: { x: number; y: number; d: string }[] }[];
+  /** Painted in order; each tile holds whole shapes (outline + holes) so nonzero filling works. */
+  layers: { color: string; tiles: { b: [number, number, number, number]; d: string }[] }[];
 }
 
 export type TemplateId = 'blank' | 'ruled' | 'grid' | 'dots' | 'cornell' | 'split';

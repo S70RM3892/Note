@@ -1,6 +1,6 @@
 import { strokeSvgPath, isDarkColor } from '../core/ink';
 import { templateGeometry } from '../core/paper';
-import type { Item, Page, Stroke } from '../core/types';
+import type { Item, Page, ScanItem, Stroke } from '../core/types';
 import type { AssetCache } from '../editor/assets';
 import { maxScaleFor, paintPage, paintText } from '../editor/paint';
 import type { Repo } from '../store/repo';
@@ -41,6 +41,20 @@ function itemPlacement(it: Item, H: number) {
   const dx = -it.w / 2, dy = it.h / 2;
   const x = cx + dx * c - dy * s, y = cy + dx * s + dy * c;
   return { x: x * PT, y: H - y * PT, w: it.w * PT, h: it.h * PT, deg: (-it.rot * 180) / Math.PI };
+}
+
+/** Top-left corner of a rotated item in PDF space (origin for drawSvgPath, which rotates about it). */
+function itemOrigin(it: Item, H: number) {
+  const cx = it.x + it.w / 2, cy = it.y + it.h / 2;
+  const c = Math.cos(it.rot), s = Math.sin(it.rot);
+  const x = cx - (it.w / 2) * c + (it.h / 2) * s, y = cy - (it.w / 2) * s - (it.h / 2) * c;
+  return { x: x * PT, y: H - y * PT, deg: (-it.rot * 180) / Math.PI };
+}
+
+async function scanDoc(repo: Repo, it: ScanItem) {
+  const a = await repo.getAsset(it.vector);
+  if (!a) return null;
+  return JSON.parse(await a.blob.text()) as import('../core/types').VectorDoc;
 }
 
 export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeExport; title?: string }): Promise<Blob> {
@@ -102,10 +116,22 @@ export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeEx
     const dark = !page.pdf && isDarkColor(page.bg.color);
 
     for (const it of page.items) {
-      if (it.type !== 'image') continue;
-      let img = images.get(it.asset);
+      if (it.type === 'scan' && !it.showPhoto) {
+        const vd = await scanDoc(repo, it);
+        if (!vd) continue;
+        const o = itemOrigin(it, H);
+        const k = (PT * it.w) / vd.w;
+        for (const layer of vd.layers) {
+          const col = rgb(...hexToRgb(layer.color));
+          for (const t of layer.tiles) p.drawSvgPath(t.d, { x: o.x, y: o.y, scale: k, rotate: degrees(o.deg), color: col });
+        }
+        continue;
+      }
+      const assetId = it.type === 'image' ? it.asset : it.type === 'scan' ? it.photo : undefined;
+      if (!assetId) continue;
+      let img = images.get(assetId);
       if (!img) {
-        const a = await repo.getAsset(it.asset);
+        const a = await repo.getAsset(assetId);
         if (!a) continue;
         const bytes = new Uint8Array(await a.blob.arrayBuffer());
         try {
@@ -113,7 +139,7 @@ export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeEx
         } catch {
           img = await out.embedPng(await toPng(a.blob));
         }
-        images.set(it.asset, img);
+        images.set(assetId, img);
       }
       const pl = itemPlacement(it, H);
       p.drawImage(img, { x: pl.x, y: pl.y, width: pl.w, height: pl.h, rotate: degrees(pl.deg) });
@@ -179,7 +205,10 @@ export async function waitForAssets(page: Page, assets: AssetCache, scale: numbe
       const bm = assets.pdfPage(page.pdf.asset, page.pdf.index, want);
       if (!bm || bm.scale < want * 0.92) ok = false;
     }
-    for (const it of page.items) if (it.type === 'image' && !assets.image(it.asset)) ok = false;
+    for (const it of page.items) {
+      if (it.type === 'image' && !assets.image(it.asset)) ok = false;
+      if (it.type === 'scan' && !(it.showPhoto && it.photo ? assets.image(it.photo) : assets.vector(it.vector))) ok = false;
+    }
     return ok;
   };
   while (!ready() && performance.now() < deadline) {

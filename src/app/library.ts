@@ -12,6 +12,8 @@ import { importImagesAsNotebook } from './importers';
 import { newNotebookDialog } from './newNotebook';
 import { openSettings } from './settingsView';
 import { exportNotebookPdfDialog } from './exportDialog';
+import { handleScanResult } from './scanActions';
+import { openScanDialog } from './scanDialog';
 
 type FolderFilter = 'all' | 'fav' | string;
 
@@ -61,6 +63,7 @@ export class LibraryView implements View {
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn primary', onclick: () => this.create(), 'data-testid': 'new-notebook' }, icon('plus', 18), h('span', null, '新規ノート')),
         h('button', { class: 'btn', onclick: () => this.importPdf(), 'data-testid': 'import-pdf' }, icon('fileUp', 18), h('span', null, 'PDF取込')),
+        h('button', { class: 'btn', onclick: () => this.scan(), 'data-testid': 'lib-scan' }, icon('scan', 18), h('span', null, 'スキャン')),
         h('button', { class: 'icon-btn', 'aria-label': 'メニュー', onclick: (e: Event) => this.mainMenu(e.currentTarget as HTMLElement) }, icon('more')),
       ),
       h('div', { class: 'lib-scroll' }, this.strip, this.folderBar, this.results, this.grid),
@@ -396,6 +399,10 @@ export class LibraryView implements View {
     } catch (e) {
       toast('取り込めなかった: ' + (e as Error).message, 3000);
     }
+  }
+
+  private scan() {
+    openScanDialog((res, action) => handleScanResult(this.app, res, action), { canPlace: false });
   }
 
   private async importImages() {

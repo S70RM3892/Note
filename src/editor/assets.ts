@@ -1,4 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { VectorDoc } from '../core/types';
 import { openPdf } from '../pdf/pdfjs';
 import type { Repo } from '../store/repo';
 
@@ -11,6 +12,12 @@ interface PdfBitmap {
 const PDF_PIXEL_BUDGET = 48e6;
 const REGION_MAX_DIM = 4096;
 
+/** Parsed vector artwork with one Path2D per tile and layer. */
+export interface VectorArt {
+  doc: VectorDoc;
+  paths: { color: string; tiles: { b: [number, number, number, number]; path: Path2D | null; d: string }[] }[];
+}
+
 export interface PdfRegion {
   canvas: HTMLCanvasElement;
   scale: number;
@@ -20,6 +27,7 @@ export interface PdfRegion {
 /** Decoded images and rendered PDF pages, shared by all editors. */
 export class AssetCache {
   private images = new Map<string, ImageBitmap | null>();
+  private vectors = new Map<string, VectorArt | null>();
   private pdfDocs = new Map<string, Promise<PDFDocumentProxy>>();
   private pdfBitmaps = new Map<string, PdfBitmap[]>(); // key asset:index
   private queue: { asset: string; index: number; scale: number }[] = [];
@@ -55,6 +63,35 @@ export class AssetCache {
       }
     })();
     return null;
+  }
+
+  /** Vector artwork of a scan; null until loaded (subscribers are notified). */
+  vector(id: string): VectorArt | null {
+    if (this.vectors.has(id)) return this.vectors.get(id) ?? null;
+    this.vectors.set(id, null);
+    void (async () => {
+      const a = await this.repo.getAsset(id);
+      if (!a) return;
+      try {
+        const doc = JSON.parse(await a.blob.text()) as VectorDoc;
+        const art: VectorArt = { doc, paths: doc.layers.map((l) => ({ color: l.color, tiles: l.tiles.map((t) => ({ b: t.b, d: t.d, path: null })) })) };
+        this.vectors.set(id, art);
+        this.emit(id);
+      } catch (e) {
+        console.warn('vector load failed', e);
+      }
+    })();
+    return null;
+  }
+
+  /** Vector artwork, waiting for it to load. */
+  async vectorAsync(id: string): Promise<VectorArt | null> {
+    const ready = this.vector(id);
+    if (ready) return ready;
+    const a = await this.repo.getAsset(id);
+    if (!a) return null;
+    const doc = JSON.parse(await a.blob.text()) as VectorDoc;
+    return { doc, paths: doc.layers.map((l) => ({ color: l.color, tiles: l.tiles.map((t) => ({ b: t.b, d: t.d, path: null })) })) };
   }
 
   pdfDoc(asset: string): Promise<PDFDocumentProxy> {

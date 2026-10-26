@@ -1,7 +1,7 @@
 import { rectsIntersect, strokeBounds, itemBounds } from '../core/geometry';
 import { isDarkColor, paintStroke } from '../core/ink';
 import { drawPaper } from '../core/paper';
-import type { ImageItem, Item, Page, Rect, TapeItem, TextItem } from '../core/types';
+import type { ImageItem, Item, Page, Rect, ScanItem, TapeItem, TextItem } from '../core/types';
 import type { AssetCache, PdfRegion } from './assets';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -118,6 +118,53 @@ export function paintText(ctx: Ctx, t: TextItem) {
   });
 }
 
+/**
+ * Vector scan: fill each tile's Path2D, skipping tiles outside `clip` (page coords).
+ * Returns false while the artwork is still loading.
+ */
+export function paintScan(ctx: Ctx, it: ScanItem, assets: AssetCache | undefined, clip: Rect | null): boolean {
+  if (it.showPhoto && it.photo) {
+    const img = assets?.image(it.photo);
+    withItemTransform(ctx, it, () => {
+      if (img) ctx.drawImage(img, 0, 0, it.w, it.h);
+    });
+    return !!img;
+  }
+  const art = assets?.vector(it.vector);
+  if (!art) return false;
+  const k = it.w / art.doc.w;
+  // Visible part of the item in scan pixels (bounding box of the clip, rotation undone).
+  let view: [number, number, number, number] | null = null;
+  if (clip) {
+    const cx = it.x + it.w / 2, cy = it.y + it.h / 2;
+    const c = Math.cos(-it.rot), s = Math.sin(-it.rot);
+    const xs: number[] = [], ys: number[] = [];
+    for (const [px, py] of [
+      [clip.x, clip.y],
+      [clip.x + clip.w, clip.y],
+      [clip.x + clip.w, clip.y + clip.h],
+      [clip.x, clip.y + clip.h],
+    ]) {
+      const lx = (px - cx) * c - (py - cy) * s + it.w / 2, ly = (px - cx) * s + (py - cy) * c + it.h / 2;
+      xs.push(lx / k);
+      ys.push(ly / k);
+    }
+    view = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  }
+  withItemTransform(ctx, it, () => {
+    ctx.scale(k, k);
+    for (const layer of art.paths) {
+      ctx.fillStyle = layer.color;
+      for (const t of layer.tiles) {
+        if (view && (t.b[2] < view[0] || t.b[0] > view[2] || t.b[3] < view[1] || t.b[1] > view[3])) continue;
+        if (!t.path) t.path = new Path2D(t.d);
+        ctx.fill(t.path, 'nonzero');
+      }
+    }
+  });
+  return true;
+}
+
 function paintImage(ctx: Ctx, it: ImageItem, assets?: AssetCache): boolean {
   const img = assets?.image(it.asset);
   withItemTransform(ctx, it, () => {
@@ -160,7 +207,9 @@ export function paintPage(ctx: Ctx, page: Page, o: PaintOptions): boolean {
   const dark = !page.pdf && isDarkColor(page.bg.color);
 
   for (const it of page.items) {
-    if (it.type === 'image' && !skip?.has(it.id) && visible(itemBounds(it))) complete = paintImage(ctx, it, o.assets) && complete;
+    if (skip?.has(it.id) || !visible(itemBounds(it))) continue;
+    if (it.type === 'image') complete = paintImage(ctx, it, o.assets) && complete;
+    else if (it.type === 'scan') complete = paintScan(ctx, it, o.assets, clip) && complete;
   }
   for (const s of page.strokes) {
     if (s.kind === 'highlighter' && !skip?.has(s.id) && visible(strokeBounds(s))) paintStroke(ctx, s, dark);
@@ -183,7 +232,11 @@ export function paintPage(ctx: Ctx, page: Page, o: PaintOptions): boolean {
 /** Paint arbitrary objects (used for a selection being dragged). */
 export function paintObjects(ctx: Ctx, page: Page, ids: Set<string>, assets: AssetCache | undefined, scale: number) {
   const dark = !page.pdf && isDarkColor(page.bg.color);
-  for (const it of page.items) if (it.type === 'image' && ids.has(it.id)) paintImage(ctx, it, assets);
+  for (const it of page.items) {
+    if (!ids.has(it.id)) continue;
+    if (it.type === 'image') paintImage(ctx, it, assets);
+    else if (it.type === 'scan') paintScan(ctx, it, assets, null);
+  }
   for (const s of page.strokes) if (s.kind === 'highlighter' && ids.has(s.id)) paintStroke(ctx, s, dark);
   for (const s of page.strokes) if (s.kind === 'pen' && ids.has(s.id)) paintStroke(ctx, s, dark);
   for (const it of page.items) {

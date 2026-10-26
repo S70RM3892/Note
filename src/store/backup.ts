@@ -68,7 +68,13 @@ export async function exportBackup(repo: Repo, notebookIds?: string[]): Promise<
       if (!nb.pages.includes(p.id)) continue;
       files[`pages/${p.id}.json`] = strToU8(pageToJSON(p));
       if (p.pdf) assetIds.add(p.pdf.asset);
-      for (const it of p.items) if (it.type === 'image') assetIds.add(it.asset);
+      for (const it of p.items) {
+        if (it.type === 'image') assetIds.add(it.asset);
+        else if (it.type === 'scan') {
+          assetIds.add(it.vector);
+          if (it.photo) assetIds.add(it.photo);
+        }
+      }
     }
   }
   const assets: Manifest['assets'] = [];

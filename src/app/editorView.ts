@@ -21,6 +21,8 @@ import { imageItem } from './importers';
 import { chipGroup, paperFields, swatchGroup } from './newNotebook';
 import { openPageOverview } from './pageOverview';
 import { RefPane } from './refPane';
+import { handleScanResult } from './scanActions';
+import { openScanDialog } from './scanDialog';
 import { openSettings } from './settingsView';
 
 const TOOLS: { id: ToolName; icon: IconName; label: string; key: string }[] = [
@@ -268,6 +270,7 @@ export class EditorView implements View {
       this.pagePill,
       this.zoomPill,
       this.sheetBtn,
+      this.btn('scan', '写真をベクターで取り込む', () => this.scan(), 'scan-btn'),
       this.btn('timer', '過去問タイマー', () => this.app.timer.show(), 'timer-btn'),
       (this.refBtn = this.btn('columns', '参照ビュー（左に別のノートを表示）', (e) => this.refMenu(e.currentTarget as HTMLElement), 'ref-btn')),
       this.btn('grid', 'ページ一覧', () => this.overview(), 'overview'),
@@ -621,6 +624,21 @@ export class EditorView implements View {
     }
   }
 
+  /** 写真 → ベクター → place on this page (then it locks itself). */
+  scan() {
+    const doc = this.doc;
+    if (!doc) return;
+    openScanDialog(
+      (res, action) =>
+        handleScanResult(this.app, res, action, {
+          editor: this.editor,
+          doc,
+          after: () => this.renderPalette(),
+        }),
+      { canPlace: true },
+    );
+  }
+
   private async insertImage(capture?: boolean) {
     const doc = this.doc;
     if (!doc) return;
@@ -717,6 +735,7 @@ export class EditorView implements View {
     const page = doc.pages[this.editor.currentPage];
     const layout = doc.nb.layout ?? this.app.settings.get().layout;
     menu(anchor, [
+      { label: '写真をベクターで取り込む', icon: 'scan', onClick: () => this.scan() },
       { label: '画像を挿入', icon: 'image', onClick: () => this.insertImage() },
       { label: 'カメラで撮って挿入', icon: 'camera', onClick: () => this.insertImage(true) },
       { label: 'PDFのページを挿入', icon: 'fileUp', onClick: () => this.insertPdf() },
