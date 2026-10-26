@@ -31,6 +31,21 @@ export async function pen(page: Page, points: P[], opts: { buttons?: number; hol
   await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 790, buttons: 0, pointerType: 'mouse' });
 }
 
+/** Press and move the pen without lifting it (to inspect the live layer). */
+export async function penHold(page: Page, points: P[]) {
+  const c = await cdp(page);
+  const [x0, y0, p0] = points[0];
+  await c.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button: 'left', buttons: 1, clickCount: 1, force: p0 ?? 0.5, pointerType: 'pen' });
+  for (const [x, y, p] of points.slice(1)) {
+    await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1, force: p ?? 0.5, pointerType: 'pen' });
+  }
+}
+
+export async function penLift(page: Page, x: number, y: number) {
+  const c = await cdp(page);
+  await c.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1, force: 0, pointerType: 'pen' });
+}
+
 /** Hover the pen without touching. */
 export async function penHover(page: Page, x: number, y: number) {
   const c = await cdp(page);

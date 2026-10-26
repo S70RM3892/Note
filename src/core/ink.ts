@@ -191,6 +191,63 @@ export function isDarkColor(hex: string): boolean {
   return 0.299 * r + 0.587 * g + 0.114 * b < 110;
 }
 
+// ---------- pencil grain ----------
+
+const grainTiles = new Map<string, HTMLCanvasElement>();
+const TILE = 96;
+
+function mix(hex: string, target: number, t: number): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  return c.map((v) => Math.round(v + (target - v) * t)) as [number, number, number];
+}
+
+/** Opaque speckled tile: graphite colour with paper-coloured grains (seeded, so stable). */
+function grainTile(color: string, dark: boolean): HTMLCanvasElement {
+  const key = color + (dark ? 'd' : 'l');
+  let c = grainTiles.get(key);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = c.height = TILE;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(TILE, TILE);
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < TILE * TILE; i++) {
+    // Mostly solid, with sparse light grains and a faint horizontal fibre.
+    const r = rnd();
+    const fibre = (Math.floor(i / TILE) % 7 === 0 ? 0.08 : 0) * rnd();
+    const t = r > 0.82 ? 0.35 + 0.45 * rnd() : r * 0.12 + fibre;
+    const [R, G, B] = mix(color, dark ? 0 : 255, t);
+    img.data[i * 4] = R;
+    img.data[i * 4 + 1] = G;
+    img.data[i * 4 + 2] = B;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  grainTiles.set(key, c);
+  return c;
+}
+
+/**
+ * Pencil fill: one texel per device pixel, anchored at the page origin, so the live
+ * stroke and the committed one show exactly the same grain.
+ * `originX/Y` = page origin in this context's device pixels when the context itself
+ * is not in page coordinates (live layer).
+ */
+export function pencilFill(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, color: string, dark: boolean, originX?: number, originY?: number): CanvasPattern | string {
+  if (typeof document === 'undefined') return color;
+  const pat = ctx.createPattern(grainTile(color, dark), 'repeat');
+  if (!pat) return color;
+  if (originX !== undefined && originY !== undefined) pat.setTransform(new DOMMatrix([1, 0, 0, 1, originX, originY]));
+  else {
+    const m = ctx.getTransform();
+    const k = Math.hypot(m.a, m.b) || 1;
+    pat.setTransform(new DOMMatrix([1 / k, 0, 0, 1 / k, 0, 0]));
+  }
+  return pat;
+}
+
 /**
  * Paint a stroke in page coordinates (the caller sets the transform).
  * Highlighters multiply onto light paper (ink stays dark, as with a real marker,
@@ -202,17 +259,16 @@ export function paintStroke(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
   if (s.kind === 'highlighter') {
     if (darkPaper) ctx.globalAlpha = HIGHLIGHT_ALPHA;
     else ctx.globalCompositeOperation = 'multiply';
-  } else if (s.style === 'pencil') {
-    ctx.globalAlpha = 0.82;
   }
+  const fill = s.kind === 'pen' && s.style === 'pencil' ? pencilFill(ctx, s.color, darkPaper) : s.color;
   if (s.shape) {
-    ctx.strokeStyle = s.color;
+    ctx.strokeStyle = fill;
     ctx.lineWidth = s.width;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke(path);
   } else {
-    ctx.fillStyle = s.color;
+    ctx.fillStyle = fill;
     ctx.fill(path, 'nonzero');
   }
   ctx.restore();
@@ -225,34 +281,40 @@ export function paintStroke(ctx: CanvasRenderingContext2D | OffscreenCanvasRende
  */
 export class LiveInkPainter {
   private last: Circle | null = null;
+  /** Optional fill (pencil grain); defaults to the plain colour. */
+  fill: string | CanvasPattern | null = null;
 
   constructor(private ctx: CanvasRenderingContext2D, public color: string) {}
 
-  reset(color: string) {
+  reset(color: string, fill: string | CanvasPattern | null = null) {
     this.last = null;
     this.color = color;
+    this.fill = fill;
   }
 
   add(x: number, y: number, r: number) {
     const ctx = this.ctx;
     const c = { x, y, r: Math.max(0.35, r) };
-    ctx.fillStyle = this.color;
-    ctx.beginPath();
+    ctx.fillStyle = this.fill ?? this.color;
     const prev = this.last;
     if (prev) {
       const d = Math.hypot(c.x - prev.x, c.y - prev.y);
       if (d > Math.abs(prev.r - c.r) + 1e-3) {
+        // Separate fills: in one path the quad and the circle could wind in opposite
+        // directions and cancel out under the nonzero rule, leaving gaps.
         const t = tangents(prev, c);
+        ctx.beginPath();
         ctx.moveTo(t.l1x, t.l1y);
         ctx.lineTo(t.l2x, t.l2y);
         ctx.lineTo(t.r2x, t.r2y);
         ctx.lineTo(t.r1x, t.r1y);
         ctx.closePath();
+        ctx.fill();
       }
     }
-    ctx.moveTo(c.x + c.r, c.y);
+    ctx.beginPath();
     ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-    ctx.fill('nonzero');
+    ctx.fill();
     this.last = c;
   }
 }

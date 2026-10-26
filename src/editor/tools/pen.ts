@@ -46,10 +46,16 @@ export class PenTool implements Tool {
     this.snapped = null;
     this.started = s.t;
     this.sm = { x: s.wx, y: s.wy, p: s.p };
-    this.ed.live.begin(this.color, this.kind === 'highlighter', hit.dark);
+    this.ed.live.begin(this.color, this.kind === 'highlighter', hit.dark, this.pencilOrigin());
     this.push(s.wx, s.wy, s.p, true);
     this.last = s;
     this.armHold(s);
+  }
+
+  private pencilOrigin(): { x: number; y: number } | undefined {
+    if (this.kind !== 'pen' || this.style !== 'pencil' || !this.hit) return undefined;
+    const vp = this.ed.vp;
+    return { x: vp.toScreenX(this.hit.ox), y: vp.toScreenY(this.hit.oy) };
   }
 
   private armHold(s: Sample) {
@@ -139,7 +145,7 @@ export class PenTool implements Tool {
     if (!this.hit) return;
     if (this.snapped) return this.drawSnapped();
     const vp = this.ed.vp, h = this.hit;
-    this.ed.live.begin(this.color, this.kind === 'highlighter', h.dark);
+    this.ed.live.begin(this.color, this.kind === 'highlighter', h.dark, this.pencilOrigin());
     for (let i = 0; i < this.pts.length; i += 3) {
       this.ed.live.add(vp.toScreenX(this.pts[i] + h.ox), vp.toScreenY(this.pts[i + 1] + h.oy), this.radius(this.pts[i + 2]) * vp.zoom);
     }

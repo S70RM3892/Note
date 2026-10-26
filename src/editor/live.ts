@@ -1,4 +1,4 @@
-import { HIGHLIGHT_ALPHA, LiveInkPainter } from '../core/ink';
+import { HIGHLIGHT_ALPHA, LiveInkPainter, pencilFill } from '../core/ink';
 
 interface Box {
   x0: number;
@@ -37,6 +37,7 @@ export class LiveLayer {
   private predBox: Box | null = null;
   private inkBox: Box | null = null;
   private raf = 0;
+  private lastPt: { x: number; y: number; pad: number } | null = null;
   private clearGen = 0;
   private pendingClear = false;
   dpr = 1;
@@ -63,10 +64,15 @@ export class LiveLayer {
     this.inkBox = this.dirty = this.predBox = null;
   }
 
-  begin(color: string, highlighter: boolean, darkPaper: boolean) {
+  /** `pencilOrigin`: page origin in CSS px, to anchor the pencil grain like the committed stroke. */
+  begin(color: string, highlighter: boolean, darkPaper: boolean, pencilOrigin?: { x: number; y: number }) {
     if (this.pendingClear) this.clear();
-    this.painter.reset(color);
-    this.predPainter.reset(color);
+    const d = this.dpr;
+    const fill = pencilOrigin ? pencilFill(this.bctx, color, darkPaper, pencilOrigin.x * d, pencilOrigin.y * d) : null;
+    const pfill = pencilOrigin ? pencilFill(this.ctx, color, darkPaper, pencilOrigin.x * d, pencilOrigin.y * d) : null;
+    this.painter.reset(color, fill);
+    this.predPainter.reset(color, pfill);
+    this.lastPt = null;
     this.canvas.style.mixBlendMode = highlighter && !darkPaper ? 'multiply' : 'normal';
     this.canvas.style.opacity = highlighter && darkPaper ? String(HIGHLIGHT_ALPHA) : '1';
   }
@@ -76,8 +82,11 @@ export class LiveLayer {
     const d = this.dpr;
     this.painter.add(sx * d, sy * d, r * d);
     const pad = r * d + 2;
+    // The new segment reaches back to the previous sample: copy that part too.
+    if (this.lastPt) this.dirty = grow(this.dirty, this.lastPt.x, this.lastPt.y, this.lastPt.pad);
     this.dirty = grow(this.dirty, sx * d, sy * d, pad);
     this.inkBox = grow(this.inkBox, sx * d, sy * d, pad);
+    this.lastPt = { x: sx * d, y: sy * d, pad };
     if (show) this.flush();
   }
 
@@ -115,7 +124,7 @@ export class LiveLayer {
     this.flush();
     if (!tip || !pts.length) return;
     const d = this.dpr;
-    this.predPainter.reset(this.painter.color);
+    this.predPainter.reset(this.painter.color, this.predPainter.fill);
     this.predPainter.add(tip.sx * d, tip.sy * d, tip.r * d);
     let box: Box | null = grow(null, tip.sx * d, tip.sy * d, tip.r * d + 2);
     for (const p of pts) {
@@ -134,6 +143,11 @@ export class LiveLayer {
     if (w <= 0 || h <= 0) return;
     const c = this.ctx;
     c.save();
+    // 'copy' replaces the region atomically (no blank frame on a front buffer);
+    // the clip is essential, otherwise 'copy' wipes everything outside the image.
+    c.beginPath();
+    c.rect(x, y, w, h);
+    c.clip();
     c.globalCompositeOperation = 'copy';
     c.drawImage(this.buf, x, y, w, h, x, y, w, h);
     c.restore();
@@ -157,5 +171,6 @@ export class LiveLayer {
     this.bctx.clearRect(0, 0, this.buf.width, this.buf.height);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.inkBox = this.dirty = this.predBox = null;
+    this.lastPt = null;
   }
 }

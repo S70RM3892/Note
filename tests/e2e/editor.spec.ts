@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { docInfo, flush, line, newNotebook, pageToScreen, pen, penHover, tapFingers, touch, touchStep, wave } from './helpers';
+import { docInfo, flush, line, newNotebook, pageToScreen, pen, penHold, penHover, penLift, tapFingers, touch, touchStep, wave } from './helpers';
 
 test.describe('ink', () => {
   test('pen strokes are drawn, saved and survive a reload', async ({ page }) => {
@@ -19,6 +19,41 @@ test.describe('ink', () => {
     await page.screenshot({ path: 'test-results/ink.png' });
     expect(errors).toEqual([]);
   });
+
+  for (const style of ['ballpoint', 'pencil'] as const) {
+    test(`live ink is continuous while the pen is down (${style})`, async ({ page }) => {
+      await newNotebook(page);
+      await page.evaluate((st) => (window as any).sumi.settings.update({ pen: { style: st, color: '#222222', width: 3 } }), style);
+      await pen(page, wave(300, 250, 300)); // a previous stroke whose delayed clear must not interfere
+      const pts = wave(300, 400, 420, 80);
+      await penHold(page, pts);
+      await page.waitForTimeout(100);
+      // Ink under every input sample and every column along the stroke on the live layer.
+      const gaps = await page.evaluate((samples) => {
+        const ed = (window as any).sumi.editor;
+        const live: HTMLCanvasElement = ed.live.canvas;
+        const c = document.createElement('canvas');
+        c.width = live.width;
+        c.height = live.height;
+        const x = c.getContext('2d')!;
+        x.drawImage(live, 0, 0);
+        const box = ed.el.getBoundingClientRect();
+        const dpr = ed.vp.dpr;
+        const inked = (px: number, py: number, w: number, h: number) => {
+          const d = x.getImageData(Math.round((px - box.left) * dpr), Math.round((py - box.top) * dpr), Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr))).data;
+          for (let i = 3; i < d.length; i += 4) if (d[i] > 200) return true;
+          return false;
+        };
+        const empty: string[] = [];
+        for (const [sx, sy] of samples.slice(2, -2)) if (!inked(sx - 0.5, sy - 0.5, 1, 1)) empty.push(`pt ${sx.toFixed(0)},${sy.toFixed(0)}`);
+        for (let cx = 305; cx < 700; cx += 1) if (!inked(cx, 370, 1, 60)) empty.push(`col ${cx}`);
+        return empty;
+      }, pts);
+      expect(gaps).toEqual([]);
+      await penLift(page, pts[pts.length - 1][0], pts[pts.length - 1][1]);
+      expect((await docInfo(page)).pages[0].strokes.length).toBe(2);
+    });
+  }
 
   test('highlighter and shape snapping', async ({ page }) => {
     await newNotebook(page);
