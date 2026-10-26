@@ -420,3 +420,39 @@ test('教科別: writing time is counted per notebook and shown in 学習の記�
   const byNb = await page.evaluate(() => (window as any).sumi.stats.data.byNb);
   expect(Object.values(byNb as Record<string, Record<string, number>>)[0]).toBeTruthy();
 });
+
+test('就寝ロック: after bedtime nothing can be written; a 5-second hold buys 15 minutes', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-26T23:20:00+09:00'));
+  await newNotebook(page, '夜');
+  await expect(page.getByTestId('sleep-lock')).toHaveCount(0); // off by default
+  await page.evaluate(() => (window as any).sumi.settings.update({ bedtimeLock: true }));
+  const lock = page.getByTestId('sleep-lock');
+  await expect(lock).toBeVisible();
+  await expect(lock).toContainText('寝る時間だ');
+  await page.screenshot({ path: 'test-results/sleep-lock.png' });
+  await pen(page, wave(300, 300, 300));
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(0);
+
+  // A short press does nothing; holding 5 s opens it.
+  const more = page.getByTestId('sleep-more');
+  await more.click();
+  await expect(lock).toBeVisible();
+  const box = (await more.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(5300);
+  await page.mouse.up();
+  await expect(lock).toHaveCount(0);
+  await pen(page, wave(300, 300, 300));
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(1);
+});
+
+test('ページごとの所要時間 shows in the page list', async ({ page }) => {
+  await newNotebook(page, '過去問 2019');
+  await pen(page, wave(300, 300, 300));
+  const pageId = await page.evaluate(() => (window as any).sumi.view.doc.pages[0].id);
+  expect(await page.evaluate((id) => (window as any).sumi.stats.pageTime(id), pageId)).toBeGreaterThan(0);
+  await page.evaluate((id) => ((window as any).sumi.stats.data.byPage[id] = 47 * 60), pageId);
+  await page.getByTestId('page-pill').click();
+  await expect(page.locator('.page-thumb .spent')).toHaveText('47分');
+});

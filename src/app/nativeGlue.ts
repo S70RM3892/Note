@@ -64,8 +64,10 @@ export function installNativeGlue(app: App) {
       return false;
     },
     onIncoming: () => void takeIncoming(),
+    onShortcut: () => void runShortcut(app, bridge),
   });
   void takeIncoming();
+  void runShortcut(app, bridge);
 }
 
 /**
@@ -73,6 +75,21 @@ export function installNativeGlue(app: App) {
  * writing area. It needs to know where that area is and how the pen draws; the editor's pen
  * tool claims / confirms / cancels each wet stroke (Editor.wet).
  */
+/** Launcher shortcuts (long-press the app icon): 新しいノート / スキャン / 今日の復習. */
+async function runShortcut(app: App, bridge: SumiNativeBridge) {
+  const target = bridge.takeShortcut?.() ?? '';
+  if (!target) return;
+  if (target === 'review') return app.go('#/review');
+  const testid = target === 'scan' ? 'lib-scan' : 'new-notebook';
+  if (!/^#?\/?$/.test(location.hash)) app.go('#/');
+  // The library builds its header synchronously once routed; give the route a moment.
+  for (let i = 0; i < 40; i++) {
+    const b = document.querySelector<HTMLButtonElement>(`[data-testid="${testid}"]`);
+    if (b) return b.click();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 /** 就寝・復習のお知らせ: (re)schedule whenever the settings change or the app comes back to the library. */
 function installReminders(app: App, bridge: SumiNativeBridge) {
   if (!bridge.setReminders) return;
@@ -109,7 +126,7 @@ function installWetInk(app: App, bridge: SumiNativeBridge) {
       const s = app.settings.get();
       const r = ed.el.getBoundingClientRect();
       // Off when anything floats over the page (menus, dialogs) or the pen isn't the tool.
-      const covered = !!document.querySelector('.modal-backdrop, .popover-layer');
+      const covered = !!document.querySelector('.modal-backdrop, .popover-layer, .sleep-lock');
       const on = s.wetInk && !!ed.doc && ed.el.isConnected && ed.tool === 'pen' && !ed.readOnly && !covered && r.width > 0 && r.height > 0;
       const json = JSON.stringify({
         on,

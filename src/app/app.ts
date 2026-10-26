@@ -10,6 +10,7 @@ import { native } from '../platform';
 import { EditorView } from './editorView';
 import { LibraryView } from './library';
 import { startReview } from './review';
+import { SleepLock } from './sleepLock';
 
 export interface View {
   el: HTMLElement;
@@ -27,6 +28,7 @@ export class App {
   private snoozeUntil = 0;
   private bannerKey = '';
   readonly timer: TimerWidget;
+  readonly sleepLock = new SleepLock(this);
 
   constructor(
     public repo: Repo,
@@ -78,7 +80,7 @@ export class App {
     if (!this.editor) {
       this.editor = new Editor(host, this.settings, this.assets);
       this.editor.toast = (m) => toast(m, 900);
-      this.editor.onActivity = () => this.stats.activity(Date.now(), this.editor?.doc?.nb.id);
+      this.editor.onActivity = (_ms, pageId) => this.stats.activity(Date.now(), this.editor?.doc?.nb.id, pageId);
       this.editorHooks.splice(0).forEach((fn) => fn(this.editor!));
     } else host.appendChild(this.editor.el);
     return this.editor;
@@ -88,6 +90,7 @@ export class App {
 
   /** 集中モード while the exam clock runs: keep the screen on, and in the APK optionally pin the app. */
   onTimerRunning(running: boolean) {
+    if (!running) this.sleepLock.check();
     if (native) {
       native.setKeepScreenOn(running);
       if (this.settings.get().focusPin || !running) native.setFocusLock?.(running);
@@ -174,6 +177,7 @@ export class App {
       this.nightEl.remove();
       this.nightEl = null;
     }
+    this.sleepLock.check();
     const show = night && Date.now() > this.snoozeUntil;
     const key = show ? s.bedtime : '';
     if (key === this.bannerKey) return; // no DOM churn every minute

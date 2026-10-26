@@ -27,6 +27,9 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.core.content.IntentCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -59,6 +62,8 @@ class MainActivity : ComponentActivity() {
         const val START_URL = "$ORIGIN/assets/www/index.html"
         /** Files we hand to the page (scans, opened PDFs) are served from here. */
         const val FILES_URL = "$ORIGIN/files/"
+        const val ACTION_SHORTCUT = "io.github.s70rm3892.sumi.SHORTCUT"
+        const val EXTRA_SHORTCUT = "target"
     }
 
     private lateinit var container: FrameLayout
@@ -77,6 +82,8 @@ class MainActivity : ComponentActivity() {
     private var cameraUri: Uri? = null
     private var pendingSave: File? = null
     private val incoming = mutableListOf<JSONObject>()
+    /** Launcher shortcut waiting for the page ("new" | "scan" | "review"). */
+    @Volatile private var shortcut = ""
 
     private val pickDocuments = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val cb = chooserCallback
@@ -117,6 +124,7 @@ class MainActivity : ComponentActivity() {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         cleanOldFiles()
         Reminders.rescheduleAll(this) // force-stopping the app drops its alarms
+        installShortcuts()
         ink = InkRecognizer(this) // starts checking whether the handwriting model is already there
 
         assetLoader = WebViewAssetLoader.Builder()
@@ -507,8 +515,38 @@ class MainActivity : ComponentActivity() {
 
     // ---------- files opened with / shared to the app ----------
 
+    /** Long-press the app icon: 新しいノート / スキャン / 今日の復習. */
+    private fun installShortcuts() {
+        fun item(id: String, label: String, icon: Int) = ShortcutInfoCompat.Builder(this, id)
+            .setShortLabel(label)
+            .setIcon(IconCompat.createWithResource(this, icon))
+            .setIntent(Intent(this, MainActivity::class.java).setAction(ACTION_SHORTCUT).putExtra(EXTRA_SHORTCUT, id))
+            .build()
+        runCatching {
+            ShortcutManagerCompat.setDynamicShortcuts(
+                this,
+                listOf(
+                    item("new", "新しいノート", R.drawable.ic_shortcut_new),
+                    item("scan", "スキャン", R.drawable.ic_shortcut_scan),
+                    item("review", "今日の復習", R.drawable.ic_shortcut_review),
+                ),
+            )
+        }
+    }
+
+    fun takeShortcut(): String {
+        val s = shortcut
+        shortcut = ""
+        return s
+    }
+
     private fun handleIntent(intent: Intent?) {
         intent ?: return
+        if (intent.action == ACTION_SHORTCUT) {
+            shortcut = intent.getStringExtra(EXTRA_SHORTCUT).orEmpty()
+            if (pageReady) callJs("onShortcut")
+            return
+        }
         val uris: List<Uri> = when (intent.action) {
             Intent.ACTION_VIEW -> listOfNotNull(intent.data)
             Intent.ACTION_SEND -> listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))

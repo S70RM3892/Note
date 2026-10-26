@@ -251,7 +251,7 @@ export class PenTool implements Tool {
     this.ed.live.predict(null, []);
     this.ed.commitStroke(h.page.id, stroke, this.wet);
     this.wet = false;
-    this.ed.noteActivity(s ? s.t - this.started : 0);
+    this.ed.noteActivity(s ? s.t - this.started : 0, h.page.id);
   }
 
   abort() {

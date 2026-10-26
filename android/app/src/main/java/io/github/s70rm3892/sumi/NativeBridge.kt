@@ -68,6 +68,10 @@ class NativeBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun takeIncoming(): String = activity.takeIncoming()
 
+    /** The launcher shortcut the app was opened with ("" = none). */
+    @JavascriptInterface
+    fun takeShortcut(): String = activity.takeShortcut()
+
     @JavascriptInterface
     fun backupFolder(): String = activity.backupFolderName()
 

@@ -17,6 +17,8 @@ export interface SumiNativeBridge {
   setKeepScreenOn(on: boolean): void;
   /** Files opened/shared into the app since the last call: JSON [{url, name, mime}]. */
   takeIncoming(): string;
+  /** The launcher shortcut the app was opened with: 'new' | 'scan' | 'review' | '' (then cleared). */
+  takeShortcut?(): string;
   /** What the S Pen side button does ('eraser' | 'lasso' | 'none'); the shell rewrites the pen's touches to match. */
   setPenButtonAction?(action: string): void;
   /** Name of the folder automatic backups go to ("" = none chosen). */
@@ -62,6 +64,8 @@ interface NativeCallbacks {
   onInk?: (json: string) => void;
   onInkModel?: (json: string) => void;
   onBackupFolder?: (json: string) => void;
+  /** A launcher shortcut was used while the app was running (read it with takeShortcut()). */
+  onShortcut?: () => void;
   /** Answer to the notification permission prompt. */
   onNotifyPermission?: (granted: boolean) => void;
 }
@@ -131,7 +135,7 @@ export async function nativeFile(blob: Blob, name: string, action: 'save' | 'sha
   });
 }
 
-export function setNativeCallbacks(cb: Pick<NativeCallbacks, 'onPenButton' | 'onBack' | 'onIncoming' | 'onNotifyPermission'>) {
+export function setNativeCallbacks(cb: Pick<NativeCallbacks, 'onPenButton' | 'onBack' | 'onIncoming' | 'onNotifyPermission' | 'onShortcut'>) {
   Object.assign(callbacks(), cb);
 }
 

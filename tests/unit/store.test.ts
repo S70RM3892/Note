@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import { Repo } from '../../src/store/repo';
 import { exportBackup, importBackup, pageFromJSON, pageToJSON } from '../../src/store/backup';
-import { isNight } from '../../src/store/settings';
+import { isNight, sleepLocked } from '../../src/store/settings';
 import { mkStroke } from './helpers';
 
 let n = 0;
@@ -82,5 +82,21 @@ describe('night window', () => {
     expect(isNight(s, at(2))).toBe(true);
     expect(isNight(s, at(6))).toBe(false);
     expect(isNight(s, at(12))).toBe(false);
+  });
+});
+
+describe('就寝ロック', () => {
+  const at = (h: number, m = 0) => new Date(2026, 0, 1, h, m);
+  it('locks from 15 minutes after bedtime until wake time, only when turned on', () => {
+    const s = { bedtimeLock: true, bedtime: '23:00', wakeTime: '06:00' };
+    expect(sleepLocked(s, at(22, 59))).toBe(false);
+    expect(sleepLocked(s, at(23, 10))).toBe(false); // grace: wrap up
+    expect(sleepLocked(s, at(23, 15))).toBe(true);
+    expect(sleepLocked(s, at(3))).toBe(true);
+    expect(sleepLocked(s, at(6))).toBe(false);
+    expect(sleepLocked({ ...s, bedtimeLock: false }, at(1))).toBe(false);
+    // Bedtime after midnight.
+    expect(sleepLocked({ ...s, bedtime: '00:30' }, at(0, 50))).toBe(true);
+    expect(sleepLocked({ ...s, bedtime: '00:30' }, at(23, 50))).toBe(false);
   });
 });

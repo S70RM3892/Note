@@ -42,6 +42,11 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
         }, 20),
       setFocusLock: (on: boolean) => (w.__focus ??= []).push(on),
       setReminders: (json: string) => (w.__reminders ??= []).push(JSON.parse(json)),
+      takeShortcut: () => {
+        const t = w.__shortcut ?? '';
+        w.__shortcut = '';
+        return t;
+      },
       notificationsAllowed: () => !!w.__notifyOk,
       // Wet ink: the test decides whether the shell "drew" the stroke (default: no).
       setWetInk: (json: string) => (w.__wet ??= []).push(JSON.parse(json)),
@@ -388,4 +393,22 @@ test('就寝・復習のお知らせ: settings schedule the reminders in the she
   expect(review.text).toContain('0ページ');
   expect(review.text).toContain('共通テストまで82日'); // the nearest exam
   await expect(page.getByTestId('notify-status')).toHaveText('');
+});
+
+test('launcher shortcuts: opened with 新しいノート, then 今日の復習 while running', async ({ page }) => {
+  await fakeBridge(page);
+  await page.addInitScript(() => ((window as any).__shortcut = 'new'));
+  await page.goto('/');
+  await expect(page.locator('.modal h2')).toHaveText('新しいノート');
+  await page.getByTestId('nb-title').fill('ショートカット');
+  await page.getByTestId('create-notebook').click();
+  await page.waitForFunction(() => !!(window as any).sumi?.view?.doc);
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__shortcut = 'review';
+    w.__sumiNative.onShortcut();
+  });
+  // Nothing due: the review route says so and returns to the library.
+  await expect(page.getByText('今日の復習はありません')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/');
 });

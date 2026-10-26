@@ -238,6 +238,7 @@ export function openSettings(app: App) {
     toggle('就寝リマインダー', '就寝時刻を過ぎたら上部に表示', s.bedtimeEnabled, (v) => set({ bedtimeEnabled: v })),
     h('div', { class: 'toggle-row' }, h('div', null, '就寝時刻'), time(s.bedtime, (v) => set({ bedtime: v }))),
     h('div', { class: 'toggle-row' }, h('div', null, '起床時刻'), time(s.wakeTime, (v) => set({ wakeTime: v }))),
+    toggle('就寝ロック', '就寝時刻の15分後から起床時刻まで、画面を閉じて書けなくする。延長は5秒長押しで15分（1晩2回まで）。過去問タイマー中はロックしない', s.bedtimeLock, (v) => set({ bedtimeLock: v })),
     toggle('夜間は暖色フィルター', '就寝時刻〜起床時刻の間、画面を暖色にする', s.nightFilter, (v) => set({ nightFilter: v })),
     h('h3', null, 'データ'),
     slider('バックアップ催促の間隔', 1, 30, 1, s.backupReminderDays, (v) => `${v}日`, (v) => set({ backupReminderDays: v })),

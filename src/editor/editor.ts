@@ -86,7 +86,7 @@ export class Editor {
   private unsubAssets: () => void;
   private ro: ResizeObserver;
   penSeen = false;
-  onActivity: (durationMs: number) => void = () => {};
+  onActivity: (durationMs: number, pageId: string) => void = () => {};
   /** A pen/highlighter stroke was added (the view may append a page under it). */
   onStroke: (pageId: string, s: Stroke) => void = () => {};
 
@@ -272,8 +272,8 @@ export class Editor {
     this.onStroke(pageId, s);
   }
 
-  noteActivity(ms: number) {
-    this.onActivity(ms);
+  noteActivity(ms: number, pageId: string) {
+    this.onActivity(ms, pageId);
   }
 
   /** Peel or restore the top-most tape at a world point. */

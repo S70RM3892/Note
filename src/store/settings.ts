@@ -38,6 +38,8 @@ export interface Settings {
   bedtime: string; // HH:MM
   wakeTime: string; // HH:MM
   nightFilter: boolean;
+  /** 就寝ロック: no writing from 15 minutes after bedtime until wake time (deliberate overrides only). */
+  bedtimeLock: boolean;
   backupReminderDays: number;
   lastBackup: number;
   /** Countdown targets shown in the library. */
@@ -93,6 +95,7 @@ export const DEFAULT_SETTINGS: Settings = {
   bedtime: '23:00',
   wakeTime: '06:00',
   nightFilter: true,
+  bedtimeLock: false,
   backupReminderDays: 7,
   lastBackup: 0,
   exams: DEFAULT_EXAMS,
@@ -155,4 +158,14 @@ export function isNight(s: Pick<Settings, 'bedtime' | 'wakeTime'>, now: Date): b
   const b = minutes(s.bedtime), w = minutes(s.wakeTime);
   if (b === w) return false;
   return b < w ? t >= b && t < w : t >= b || t < w;
+}
+
+/** 就寝ロック starts this long after bedtime (time to wrap up after the banner). */
+export const LOCK_GRACE_MIN = 15;
+
+/** Is the bedtime lock on at `now`? */
+export function sleepLocked(s: Pick<Settings, 'bedtimeLock' | 'bedtime' | 'wakeTime'>, now: Date): boolean {
+  if (!s.bedtimeLock || !isNight(s, now)) return false;
+  const t = now.getHours() * 60 + now.getMinutes();
+  return (t - minutes(s.bedtime) + 1440) % 1440 >= LOCK_GRACE_MIN;
 }

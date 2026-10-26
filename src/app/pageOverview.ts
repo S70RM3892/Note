@@ -2,7 +2,7 @@ import type { Page } from '../core/types';
 import type { EditorDoc } from '../editor/doc';
 import type { Editor } from '../editor/editor';
 import { thumbnail } from '../pdf/export';
-import { h } from '../ui/dom';
+import { formatDuration, h } from '../ui/dom';
 import { menu, modal, promptDialog } from '../ui/dialogs';
 import { icon } from '../ui/icons';
 
@@ -12,6 +12,8 @@ export interface PageOverviewActions {
   remove(i: number): void;
   toggleReview(page: Page): Promise<void>;
   isInReview(page: Page): boolean;
+  /** Seconds spent writing on the page. */
+  spent(page: Page): number;
   /** しおり: label to bookmark, undefined to remove. */
   setMark(page: Page, label: string | undefined): void;
 }
@@ -78,7 +80,13 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
         'div',
         { class: 'page-thumb' + (i === current ? ' current' : ''), 'data-index': i },
         cv,
-        h('div', { class: 'num' }, `${i + 1}`, actions.isInReview(page) ? h('span', { class: 'badge' }, icon('brain', 11), '復習') : null),
+        h(
+          'div',
+          { class: 'num' },
+          `${i + 1}`,
+          actions.isInReview(page) ? h('span', { class: 'badge' }, icon('brain', 11), '復習') : null,
+          actions.spent(page) >= 60 ? h('span', { class: 'spent', title: 'このページに書いていた時間' }, icon('timer', 11), formatDuration(actions.spent(page))) : null,
+        ),
         page.mark !== undefined ? h('span', { class: 'mark-ribbon', title: markLabel(page, i) }) : null,
         more,
       );

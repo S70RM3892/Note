@@ -14,8 +14,8 @@ export class StatsTracker {
     this.data.byNb = pruneNotebookDays(this.data.byNb ?? {});
   }
 
-  /** Writing happened (in notebook `nb`). */
-  activity(now = Date.now(), nb?: string) {
+  /** Writing happened (in notebook `nb`, on page `page`). */
+  activity(now = Date.now(), nb?: string, page?: string) {
     const gap = now - this.last;
     const add = gap > 0 && gap < CONTINUOUS_GAP ? gap : MIN_CREDIT;
     this.last = now;
@@ -25,6 +25,10 @@ export class StatsTracker {
       const m = (this.data.byNb ??= {})[nb] ??= {};
       m[k] = (m[k] ?? 0) + add / 1000;
     }
+    if (page) {
+      const p = (this.data.byPage ??= {});
+      p[page] = (p[page] ?? 0) + add / 1000;
+    }
     this.save();
   }
 
@@ -32,6 +36,11 @@ export class StatsTracker {
     this.data.exams.unshift({ at: Date.now(), label, planned: plannedSec, used: usedSec, ...(lapsSec?.length ? { laps: lapsSec } : {}) });
     this.data.exams = this.data.exams.slice(0, 200);
     this.save(true);
+  }
+
+  /** Seconds spent writing on a page. */
+  pageTime(page: string): number {
+    return this.data.byPage?.[page] ?? 0;
   }
 
   today(): number {

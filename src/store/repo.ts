@@ -20,6 +20,8 @@ export interface StudyStats {
   days: Record<string, number>;
   /** The same per notebook (教科別): notebook id → day → seconds, last 60 days. */
   byNb?: Record<string, Record<string, number>>;
+  /** Total writing time per page (how long each problem took). */
+  byPage?: Record<string, number>;
   exams: { at: number; label: string; planned: number; used: number; laps?: number[] }[];
 }
 

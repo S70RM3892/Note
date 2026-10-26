@@ -1723,3 +1723,72 @@ select.input {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+.page-thumb .spent {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sleep-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: radial-gradient(circle at 50% 30%, #1d2340, #07080f 70%);
+  color: #e8e6f0;
+  touch-action: none;
+}
+.sleep-card {
+  max-width: 460px;
+  text-align: center;
+}
+.sleep-card h2 {
+  font-size: 28px;
+  margin: 8px 0 12px;
+}
+.sleep-card p {
+  line-height: 1.7;
+  margin: 0 0 10px;
+}
+.sleep-card .muted {
+  color: #9a98b0;
+  font-size: 14px;
+}
+.sleep-moon {
+  font-size: 56px;
+}
+.hold-btn {
+  position: relative;
+  overflow: hidden;
+  margin-top: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #c9c6dc;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+.hold-fill {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: rgba(255, 255, 255, 0.16);
+  transition: width 0.15s linear;
+}
+.hold-btn.holding .hold-fill {
+  width: 100%;
+  transition: width 5s linear;
+}
+.hold-label {
+  position: relative;
+}
+.sleep-phrase .input {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8e6f0;
+  border-color: rgba(255, 255, 255, 0.2);
+  text-align: center;
+}

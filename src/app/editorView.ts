@@ -887,6 +887,7 @@ export class EditorView implements View {
       remove: (i) => void this.deletePage(i),
       toggleReview: (p) => this.toggleReview(p),
       isInReview: (p) => this.reviewIds.has(p.id),
+      spent: (p) => this.app.stats.pageTime(p.id),
       setMark: (p, label) => {
         doc.setMark(p.id, label);
         this.sync();
