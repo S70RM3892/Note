@@ -17,8 +17,10 @@ export interface PageOverviewActions {
 /** Grid of page thumbnails: jump, reorder by dragging, per-page actions. */
 export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOverviewActions) {
   const grid = h('div', { class: 'pages-grid' });
-  const m = modal(`ページ一覧（${doc.pages.length}）`, grid, { wide: true });
+  const toc = h('div', { class: 'toc', 'data-testid': 'toc' });
+  const m = modal(`ページ一覧（${doc.pages.length}）`, h('div', null, toc, grid), { wide: true });
   const current = editor.currentPage;
+  void renderToc(toc, editor, doc, () => m.close());
 
   const render = () => {
     grid.replaceChildren();
@@ -102,4 +104,36 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
   };
 
   render();
+}
+
+/** Table of contents from the bookmarks of the PDFs in this notebook. */
+async function renderToc(host: HTMLElement, editor: Editor, doc: EditorDoc, close: () => void) {
+  const assets = [...new Set(doc.pages.map((p) => p.pdf?.asset).filter((a): a is string => !!a))];
+  const sections: HTMLElement[] = [];
+  for (const id of assets) {
+    const a = await doc.repo.getAsset(id);
+    if (!a?.outline?.length) continue;
+    const list = h('div', { class: 'toc-list' });
+    for (const e of a.outline) {
+      list.appendChild(
+        h(
+          'button',
+          {
+            class: 'toc-item',
+            style: `padding-left:${10 + e.level * 18}px`,
+            onclick: () => {
+              const i = doc.pages.findIndex((p) => p.pdf?.asset === id && p.pdf.index === e.index);
+              if (i < 0) return;
+              close();
+              editor.goToPage(i);
+            },
+          },
+          h('span', null, e.title),
+          h('span', { class: 'muted' }, `p.${e.index + 1}`),
+        ),
+      );
+    }
+    sections.push(h('div', null, h('div', { class: 'field-label' }, `目次${assets.length > 1 && a.name ? `（${a.name}）` : ''}`), list));
+  }
+  host.replaceChildren(...sections);
 }

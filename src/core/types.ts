@@ -73,6 +73,8 @@ export interface Page {
   h: number;
   bg: PageBackground;
   pdf?: { asset: string; index: number };
+  /** Text extracted from the PDF page (for search). */
+  text?: string;
   strokes: Stroke[];
   items: Item[];
   updated: number;
@@ -112,12 +114,20 @@ export interface Folder {
   order: number;
 }
 
+export interface OutlineEntry {
+  title: string;
+  index: number; // 0-based PDF page index
+  level: number;
+}
+
 export interface Asset {
   id: string;
   kind: 'pdf' | 'image';
   mime: string;
   name?: string;
   blob: Blob;
+  /** PDF bookmarks (table of contents). */
+  outline?: OutlineEntry[];
 }
 
 export interface Rect {

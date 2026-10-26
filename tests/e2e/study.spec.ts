@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
+import { PDFDocument, PDFHexString, PDFName, StandardFonts, degrees, rgb } from 'pdf-lib';
 import { docInfo, flush, line, newNotebook, pageToScreen, pen, wave } from './helpers';
 
 async function makePdf(): Promise<Buffer> {
@@ -14,13 +14,36 @@ async function makePdf(): Promise<Buffer> {
   return Buffer.from(await doc.save());
 }
 
-async function importPdf(page: Page, bytes: Buffer) {
+/** Three pages and two bookmarks (chapter 2 → page 3). */
+async function makePdfWithOutline(): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const pages = [doc.addPage([595, 842]), doc.addPage([595, 842]), doc.addPage([595, 842])];
+  const ctx = doc.context;
+  const root = ctx.nextRef(), a = ctx.nextRef(), b = ctx.nextRef();
+  ctx.assign(a, ctx.obj({ Title: PDFHexString.fromText('第1章 微分'), Parent: root, Next: b, Dest: [pages[0].ref, 'XYZ', null, null, null] }));
+  ctx.assign(b, ctx.obj({ Title: PDFHexString.fromText('第2章 積分'), Parent: root, Prev: a, Dest: [pages[2].ref, 'XYZ', null, null, null] }));
+  ctx.assign(root, ctx.obj({ Type: 'Outlines', First: a, Last: b, Count: 2 }));
+  doc.catalog.set(PDFName.of('Outlines'), root);
+  return Buffer.from(await doc.save());
+}
+
+async function importPdf(page: Page, bytes: Buffer, pages = 2) {
   await page.goto('/');
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('import-pdf').click();
   await (await chooser).setFiles({ name: 'kakomon.pdf', mimeType: 'application/pdf', buffer: bytes });
-  await page.waitForFunction(() => (window as any).sumi?.view?.doc?.pages?.length === 2, null, { timeout: 20000 });
+  await page.waitForFunction((n) => (window as any).sumi?.view?.doc?.pages?.length === n, pages, { timeout: 20000 });
 }
+
+test('PDF bookmarks become a table of contents', async ({ page }) => {
+  await importPdf(page, await makePdfWithOutline(), 3);
+  await page.getByTestId('overview').click();
+  const items = page.getByTestId('toc').locator('.toc-item');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(1)).toContainText('第2章 積分');
+  await items.nth(1).click();
+  await expect(page.getByTestId('page-pill')).toHaveText(/3 \/ 3/);
+});
 
 /** Average colour of a small screen region, read back from a screenshot. */
 async function sample(page: Page, x: number, y: number, r = 3): Promise<[number, number, number]> {
@@ -72,6 +95,16 @@ test('PDF import (incl. rotated page), annotate, export keeps pages', async ({ p
   const [w, h] = [out.getPage(1).getWidth(), out.getPage(1).getHeight()];
   expect(Math.round(w)).toBe(842);
   expect(Math.round(h)).toBe(595);
+
+  // Full-text search finds the PDF's own text and jumps to the page.
+  await page.getByTestId('back').click();
+  await page.getByPlaceholder('ノートを検索').fill('rotated');
+  const hit = page.getByTestId('search-results').locator('.search-hit');
+  await expect(hit).toHaveCount(1);
+  await expect(hit).toContainText('p.2');
+  await hit.click();
+  await page.waitForFunction(() => (window as any).sumi?.view?.doc);
+  await expect(page.getByTestId('page-pill')).toHaveText(/2 \/ 2/);
 });
 
 test('red sheet hides orange answers but not black ink', async ({ page }) => {

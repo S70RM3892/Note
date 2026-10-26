@@ -3,6 +3,7 @@ import type { Folder, Notebook } from '../core/types';
 import { importPdfAsNotebook } from '../pdf/import';
 import { exportBackup, importBackup } from '../store/backup';
 import { COVER_COLORS } from '../store/repo';
+import { searchAll } from '../store/search';
 import { append, clear, formatDate, formatDuration, h } from '../ui/dom';
 import { confirmDialog, menu, modal, pickFiles, promptDialog, safeFileName, shareOrDownload, toast } from '../ui/dialogs';
 import { icon } from '../ui/icons';
@@ -19,6 +20,9 @@ export class LibraryView implements View {
   private grid: HTMLElement;
   private folderBar: HTMLElement;
   private strip: HTMLElement;
+  private results: HTMLElement;
+  private searchTimer = 0;
+  private searchSeq = 0;
   private notebooks: Notebook[] = [];
   private folders: Folder[] = [];
   private filter: FolderFilter = 'all';
@@ -38,8 +42,11 @@ export class LibraryView implements View {
       oninput: (e: Event) => {
         this.query = (e.target as HTMLInputElement).value.trim().toLowerCase();
         this.renderGrid();
+        clearTimeout(this.searchTimer);
+        this.searchTimer = window.setTimeout(() => void this.searchContent(), 250);
       },
     });
+    this.results = h('div', { class: 'search-results', 'data-testid': 'search-results' });
     this.grid = h('div', { class: 'nb-grid' });
     this.folderBar = h('div', { class: 'folders' });
     this.strip = h('div', { class: 'study-strip' });
@@ -56,7 +63,7 @@ export class LibraryView implements View {
         h('button', { class: 'btn', onclick: () => this.importPdf(), 'data-testid': 'import-pdf' }, icon('fileUp', 18), h('span', null, 'PDF取込')),
         h('button', { class: 'icon-btn', 'aria-label': 'メニュー', onclick: (e: Event) => this.mainMenu(e.currentTarget as HTMLElement) }, icon('more')),
       ),
-      h('div', { class: 'lib-scroll' }, this.strip, this.folderBar, this.grid),
+      h('div', { class: 'lib-scroll' }, this.strip, this.folderBar, this.results, this.grid),
     );
     this.unsub = app.stats.subscribe(() => void this.renderStrip());
     void this.load();
@@ -72,6 +79,29 @@ export class LibraryView implements View {
     this.renderFolders();
     this.renderGrid();
     await this.renderStrip();
+  }
+
+  /** Full-text search over typed text and imported PDF text. */
+  private async searchContent() {
+    const seq = ++this.searchSeq;
+    const q = this.query;
+    clear(this.results);
+    if (q.length < 2) return;
+    const hits = await searchAll(this.app.repo, q);
+    if (seq !== this.searchSeq) return;
+    if (!hits.length) return;
+    this.results.append(
+      h('div', { class: 'field-label' }, `ページ内の一致（${hits.length}${hits.length >= 80 ? '+' : ''}）`),
+      ...hits.map((hit) =>
+        h(
+          'button',
+          { class: 'search-hit', onclick: () => this.app.go(`#/nb/${hit.nb.id}/${hit.page}`) },
+          h('span', { class: 'badge' }, hit.kind === 'pdf' ? 'PDF' : '文字'),
+          h('b', null, `${hit.nb.title} p.${hit.page + 1}`),
+          h('span', { class: 'muted' }, hit.snippet),
+        ),
+      ),
+    );
   }
 
   private async renderStrip() {

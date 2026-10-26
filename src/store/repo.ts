@@ -163,8 +163,9 @@ export class Repo {
 
   // ---------- assets ----------
 
-  async putAsset(blob: Blob, kind: Asset['kind'], name?: string): Promise<Asset> {
+  async putAsset(blob: Blob, kind: Asset['kind'], name?: string, outline?: Asset['outline']): Promise<Asset> {
     const a: Asset = { id: uid(), kind, mime: blob.type || (kind === 'pdf' ? 'application/pdf' : 'image/png'), name, blob };
+    if (outline) a.outline = outline;
     await this.db.put('assets', a);
     return a;
   }

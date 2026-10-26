@@ -2,14 +2,16 @@ import { uid } from '../core/id';
 import type { Notebook, Page } from '../core/types';
 import type { Repo } from '../store/repo';
 import { COVER_COLORS } from '../store/repo';
-import { openPdf, pdfPageSizes } from './pdfjs';
+import { openPdf, pdfOutline, pdfPageSizes, pdfPageTexts } from './pdfjs';
 
 export async function pdfToPages(repo: Repo, file: Blob, name: string, nbId: string): Promise<Page[]> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const doc = await openPdf(bytes.slice());
   try {
     const sizes = await pdfPageSizes(doc);
-    const asset = await repo.putAsset(new Blob([bytes], { type: 'application/pdf' }), 'pdf', name);
+    const texts = await pdfPageTexts(doc);
+    const outline = await pdfOutline(doc);
+    const asset = await repo.putAsset(new Blob([bytes], { type: 'application/pdf' }), 'pdf', name, outline.length ? outline : undefined);
     const now = Date.now();
     return sizes.map((s, index) => ({
       id: uid(),
@@ -18,6 +20,7 @@ export async function pdfToPages(repo: Repo, file: Blob, name: string, nbId: str
       h: s.h,
       bg: { tpl: 'blank', spacing: 5, color: '#ffffff' },
       pdf: { asset: asset.id, index },
+      text: texts[index] || undefined,
       strokes: [],
       items: [],
       updated: now,

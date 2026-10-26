@@ -19,7 +19,7 @@ interface Manifest {
   notebooks: Notebook[];
   folders: Folder[];
   reviews: ReviewRecord[];
-  assets: { id: string; kind: Asset['kind']; mime: string; name?: string }[];
+  assets: { id: string; kind: Asset['kind']; mime: string; name?: string; outline?: Asset['outline'] }[];
   settings?: unknown;
   stats?: unknown;
 }
@@ -75,7 +75,7 @@ export async function exportBackup(repo: Repo, notebookIds?: string[]): Promise<
   for (const id of assetIds) {
     const a = await repo.getAsset(id);
     if (!a) continue;
-    assets.push({ id: a.id, kind: a.kind, mime: a.mime, name: a.name });
+    assets.push({ id: a.id, kind: a.kind, mime: a.mime, name: a.name, outline: a.outline });
     // Already-compressed formats are stored without deflate.
     files[`assets/${a.id}`] = [await blobBytes(a.blob), { level: 0 }];
   }
