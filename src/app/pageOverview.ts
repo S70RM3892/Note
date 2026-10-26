@@ -14,6 +14,8 @@ export interface PageOverviewActions {
   isInReview(page: Page): boolean;
   /** Seconds spent writing on the page. */
   spent(page: Page): number;
+  /** Copy (or move) the page to the end of another notebook. */
+  sendTo(page: Page, move: boolean): void;
   /** ページの履歴: pick an earlier state of the page. */
   history(page: Page): void;
   /** しおり: label to bookmark, undefined to remove. */
@@ -105,6 +107,8 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
             : { label: 'しおりを外す', icon: 'bookmark', onClick: () => (actions.setMark(page, undefined), render()) },
           ...(page.mark !== undefined ? [{ label: 'しおりの名前を変更', icon: 'pencil' as const, onClick: () => void rename(page, i) }] : []),
           { label: '履歴から復元', icon: 'reset', onClick: () => (m.close(), actions.history(page)) },
+          { label: 'ほかのノートへコピー', icon: 'copy', onClick: () => (m.close(), actions.sendTo(page, false)) },
+          { label: 'ほかのノートへ移動', icon: 'fileUp', disabled: doc.pages.length <= 1, onClick: () => (m.close(), actions.sendTo(page, true)) },
           null,
           { label: '削除', icon: 'trash', danger: true, disabled: doc.pages.length <= 1, onClick: () => (actions.remove(i), render()) },
         ]);

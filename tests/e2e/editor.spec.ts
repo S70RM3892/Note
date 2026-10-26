@@ -672,3 +672,33 @@ test('ページの履歴: clearing a page can be undone from its history after r
   await page.getByTestId('undo').click();
   expect((await docInfo(page)).pages[0].strokes).toHaveLength(0);
 });
+
+test('page → ほかのノートへ移動, and the library sorts by name', async ({ page }) => {
+  await newNotebook(page, 'B 英語');
+  await page.getByTestId('back').click();
+  await page.getByTestId('new-notebook').click();
+  await page.getByTestId('nb-title').fill('A 数学');
+  await page.getByTestId('create-notebook').click();
+  await page.waitForFunction(() => !!(window as any).sumi?.view?.doc);
+  await page.getByTestId('add-page').click();
+  await pen(page, line(300, 300, 600, 300));
+  await page.getByTestId('page-pill').click();
+  await page.locator('.page-thumb[data-index="1"] .more').click();
+  await page.getByRole('menuitem', { name: 'ほかのノートへ移動' }).click();
+  await page.getByTestId('send-targets').getByRole('button', { name: /B 英語/ }).click();
+  await expect(page.getByText('「B 英語」の最後（2ページ目）に移動した')).toBeVisible();
+  expect((await docInfo(page)).pages).toHaveLength(1);
+
+  await page.getByTestId('back').click();
+  await page.getByTestId('sort').click();
+  await page.getByRole('menuitem', { name: '名前順' }).click();
+  await expect(page.getByTestId('sort')).toHaveText('名前順');
+  const names = await page.locator('.nb-grid').innerText();
+  expect(names.indexOf('A 数学')).toBeLessThan(names.indexOf('B 英語'));
+  // B now has the moved page with its stroke.
+  await page.getByTestId('notebook').filter({ hasText: 'B 英語' }).click();
+  await page.waitForFunction(() => (window as any).sumi?.view?.doc?.nb?.title === 'B 英語');
+  const info = await docInfo(page);
+  expect(info.pages).toHaveLength(2);
+  expect(info.pages[1].strokes).toHaveLength(1);
+});

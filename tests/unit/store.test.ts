@@ -148,3 +148,22 @@ describe('ページの履歴', () => {
     expect(await repo.listVersions(p.id)).toHaveLength(0);
   });
 });
+
+describe('ページをほかのノートへ', () => {
+  it('copies pages to the end of another notebook with new ids, without the bookmark', async () => {
+    const repo = await fresh();
+    const a = await repo.createNotebook({ title: 'A', pages: 2 });
+    const b = await repo.createNotebook({ title: 'B', pages: 1 });
+    const src = a.pages[1];
+    src.strokes = [mkStroke([[1, 1, 0.5], [2, 2, 0.5]])];
+    src.mark = '漸化式';
+    const target = await repo.copyPagesTo(b.nb.id, [src]);
+    expect(target!.pages).toHaveLength(2);
+    const loaded = await repo.loadPages(target!);
+    expect(loaded[1].id).not.toBe(src.id);
+    expect(loaded[1].nb).toBe(b.nb.id);
+    expect(loaded[1].strokes).toHaveLength(1);
+    expect(loaded[1].mark).toBeUndefined();
+    expect(await repo.copyPagesTo('nope', [src])).toBeNull();
+  });
+});

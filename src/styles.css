@@ -1101,9 +1101,12 @@ select.input {
   color: #e9ebff;
   font-size: 14px;
   box-shadow: var(--shadow);
+  /* A reminder, not a wall: taps (and the pen) go through to the notebook under it. */
+  pointer-events: none;
 }
 
 .banner .btn {
+  pointer-events: auto;
   height: 32px;
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
@@ -1821,4 +1824,16 @@ select.input {
   touch-action: auto;
   padding: 0;
   background: none;
+}
+
+.swatch-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+.folders .sort-chip {
+  margin-left: auto;
+  flex: none;
 }

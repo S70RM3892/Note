@@ -863,6 +863,38 @@ export class EditorView implements View {
     toast('次のページを追加した');
   }
 
+  /** Copy or move a page to the end of another notebook. */
+  private async sendPageTo(page: Page, move: boolean) {
+    const doc = this.doc;
+    if (!doc) return;
+    const others = (await this.app.repo.listNotebooks()).filter((n) => n.id !== doc.nb.id && !n.trashed).sort((a, b) => Math.max(b.updated, b.opened) - Math.max(a.updated, a.opened));
+    if (!others.length) return toast('ほかのノートがない');
+    const list = h(
+      'div',
+      { class: 'menu', 'data-testid': 'send-targets' },
+      others.map((nb) =>
+        h(
+          'button',
+          {
+            class: 'menu-item',
+            onclick: async () => {
+              m.close();
+              await doc.flush();
+              const target = await this.app.repo.copyPagesTo(nb.id, [page]);
+              if (!target) return toast('ノートが見つからない');
+              if (move && doc.pages.length > 1 && doc.page(page.id)) doc.deletePages([page.id]);
+              toast(`「${target.title}」の最後（${target.pages.length}ページ目）に${move ? '移動' : 'コピー'}した`, 2500);
+            },
+          },
+          h('span', { class: 'swatch-dot', style: `background:${nb.cover}` }),
+          h('span', null, nb.title),
+          h('small', { class: 'muted' }, ` ${nb.pages.length}p`),
+        ),
+      ),
+    );
+    const m = modal(move ? 'このページをどのノートへ移動？' : 'このページをどのノートへコピー？', list);
+  }
+
   /** ページの履歴: earlier states of the page (kept on save), one tap to bring one back (undoable). */
   private async pageHistory(page: Page) {
     const doc = this.doc;
@@ -929,6 +961,7 @@ export class EditorView implements View {
       isInReview: (p) => this.reviewIds.has(p.id),
       spent: (p) => this.app.stats.pageTime(p.id),
       history: (p) => void this.pageHistory(p),
+      sendTo: (p, move) => void this.sendPageTo(p, move),
       setMark: (p, label) => {
         doc.setMark(p.id, label);
         this.sync();

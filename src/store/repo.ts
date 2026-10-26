@@ -231,6 +231,21 @@ export class Repo {
     return nb;
   }
 
+  /** Copy pages to the end of another notebook (new ids; PDF backgrounds and images share their assets). */
+  async copyPagesTo(targetId: string, pages: Page[], now = Date.now()): Promise<Notebook | null> {
+    const target = await this.getNotebook(targetId);
+    if (!target) return null;
+    const copies = pages.map((p) => {
+      const c: Page = { ...structuredClone(p), id: uid(), nb: target.id, updated: now };
+      delete c.mark;
+      return c;
+    });
+    target.pages = [...target.pages, ...copies.map((p) => p.id)];
+    target.updated = now;
+    await this.db.write({ put: [['notebooks', target], ...copies.map((p) => ['pages', p] as ['pages', Page])] });
+    return target;
+  }
+
   // ---------- assets ----------
 
   async putAsset(blob: Blob, kind: Asset['kind'], name?: string, outline?: Asset['outline']): Promise<Asset> {

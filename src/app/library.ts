@@ -34,6 +34,7 @@ export class LibraryView implements View {
   private notebooks: Notebook[] = [];
   private folders: Folder[] = [];
   private filter: FolderFilter = 'all';
+  private sort: 'recent' | 'title' | 'created' = 'recent';
   private query = '';
   private unsub: () => void;
   /** Stops the background handwriting reader when the library closes. */
@@ -44,6 +45,8 @@ export class LibraryView implements View {
   constructor(private app: App) {
     try {
       this.filter = localStorage.getItem('sumi.folder') || 'all';
+      const s = localStorage.getItem('sumi.sort');
+      if (s === 'title' || s === 'created') this.sort = s;
     } catch {
       /* ignore */
     }
@@ -356,6 +359,27 @@ export class LibraryView implements View {
       this.folderBar.append(c);
     }
     this.folderBar.append(h('button', { class: 'chip', onclick: () => this.newFolder() }, icon('folderPlus', 15), 'フォルダ'));
+    const labels = { recent: '最近使った順', title: '名前順', created: '作った順' } as const;
+    const sortBtn = h('button', { class: 'chip sort-chip', 'data-testid': 'sort' }, labels[this.sort]);
+    sortBtn.onclick = () =>
+      menu(
+        sortBtn,
+        (Object.keys(labels) as (keyof typeof labels)[]).map((k) => ({
+          label: labels[k],
+          icon: this.sort === k ? ('check' as const) : undefined,
+          onClick: () => {
+            this.sort = k;
+            try {
+              localStorage.setItem('sumi.sort', k);
+            } catch {
+              /* ignore */
+            }
+            this.renderFolders();
+            this.renderGrid();
+          },
+        })),
+      );
+    this.folderBar.append(sortBtn);
   }
 
   private folderMenu(anchor: HTMLElement, f: Folder) {
@@ -400,6 +424,9 @@ export class LibraryView implements View {
     if (this.filter === 'fav') list = list.filter((n) => n.fav);
     else if (this.filter !== 'all') list = list.filter((n) => n.folder === this.filter);
     if (this.query) list = list.filter((n) => n.title.toLowerCase().includes(this.query));
+    const collator = new Intl.Collator('ja', { numeric: true });
+    if (this.sort === 'title') return [...list].sort((a, b) => collator.compare(a.title, b.title));
+    if (this.sort === 'created') return [...list].sort((a, b) => b.created - a.created);
     return [...list].sort((a, b) => Math.max(b.updated, b.opened) - Math.max(a.updated, a.opened));
   }
 
