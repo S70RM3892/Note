@@ -363,6 +363,8 @@ test('大問ラップ: split times per question, saved with the exam log', async
   // The installed clock also moves with real time between the clicks: allow a few seconds.
   expect(log.laps).toHaveLength(3);
   [180, 270, 60].forEach((sec, i) => expect(Math.abs(log.laps[i] - sec)).toBeLessThan(3));
+  // Wait until the log is in IndexedDB (a reload right away can abort the write).
+  await expect.poll(() => page.evaluate(async () => (await (window as any).sumi.repo.loadStats()).exams[0]?.laps?.length ?? 0)).toBe(3);
   await page.reload();
   await expect(page.getByTestId('exam-log')).toContainText('大問 3/5/1分');
 });
