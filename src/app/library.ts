@@ -185,7 +185,12 @@ export class LibraryView implements View {
                 h(
                   'div',
                   { class: 'row', style: 'gap:6px;padding:2px 0' },
-                  h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, x.label),
+                  h(
+                    'span',
+                    { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', title: x.laps?.length ? x.laps.map((l, i) => `大問${i + 1} ${Math.round(l / 60)}分`).join(' / ') : undefined },
+                    x.label,
+                    x.laps?.length ? h('small', { class: 'muted' }, ` 大問 ${x.laps.map((l) => Math.round(l / 60)).join('/')}分`) : null,
+                  ),
                   h('b', { style: x.planned && x.used > x.planned ? 'color:var(--danger)' : '' }, x.planned ? `${Math.round(x.used / 60)}/${Math.round(x.planned / 60)}分` : `${Math.round(x.used / 60)}分`),
                   h('span', { class: 'muted' }, formatDate(x.at)),
                 ),

@@ -27,6 +27,8 @@ interface TimerState {
   y?: number;
   warned?: boolean;
   ended?: boolean;
+  /** 大問の区切り: elapsed ms at each split. */
+  laps?: number[];
 }
 
 const KEY = 'sumi.timer';
@@ -71,7 +73,7 @@ function beep() {
 }
 
 export interface TimerHost {
-  stats: { addExam(label: string, plannedSec: number, usedSec: number): void };
+  stats: { addExam(label: string, plannedSec: number, usedSec: number, lapsSec?: number[]): void };
   /** The clock started (true) or stopped / ran out (false): 集中モード hooks in here. */
   onTimerRunning?(running: boolean): void;
 }
@@ -81,6 +83,7 @@ export class TimerWidget {
   private el: HTMLElement | null = null;
   private tick = 0;
   private timeEl!: HTMLElement;
+  private lapEl: HTMLElement | null = null;
   /** Toolbar slot: the minimised timer lives there so it never covers the ink canvas. */
   private dock: HTMLElement | null = null;
 
@@ -136,7 +139,7 @@ export class TimerWidget {
 
   private set(label: string, minutes: number) {
     this.logIfUsed();
-    this.s = { ...this.s, label, duration: minutes * 60_000, startedAt: null, elapsed: 0, warned: false, ended: false };
+    this.s = { ...this.s, label, duration: minutes * 60_000, startedAt: null, elapsed: 0, warned: false, ended: false, laps: [] };
     this.save();
     this.mount();
     this.notify();
@@ -144,7 +147,23 @@ export class TimerWidget {
 
   private logIfUsed() {
     const used = this.elapsed();
-    if (used > 60_000) this.host.stats.addExam(this.s.label, this.s.duration / 1000, used / 1000);
+    if (used > 60_000) this.host.stats.addExam(this.s.label, this.s.duration / 1000, used / 1000, this.splits(used).filter((ms) => ms > 0).map((ms) => ms / 1000));
+  }
+
+  /** Time spent on each 大問: between splits, plus the one in progress (if any split was made). */
+  private splits(now = this.elapsed()): number[] {
+    const laps = this.s.laps ?? [];
+    if (!laps.length) return [];
+    return [...laps, now].map((t, i) => Math.max(0, t - (i ? laps[i - 1] : 0)));
+  }
+
+  private lap() {
+    const e = this.elapsed();
+    if (e <= 0) return;
+    this.s.laps = [...(this.s.laps ?? []), e];
+    this.save();
+    toast(`大問${this.s.laps.length} ${fmt(this.splits(e)[this.s.laps.length - 1])}`, 1500);
+    this.mount();
   }
 
   private toggle() {
@@ -166,6 +185,7 @@ export class TimerWidget {
     this.s.startedAt = null;
     this.s.elapsed = 0;
     this.s.warned = this.s.ended = false;
+    this.s.laps = [];
     this.save();
     this.mount();
     this.notify();
@@ -177,6 +197,7 @@ export class TimerWidget {
     const d = this.s.duration;
     const remain = d ? d - e : e;
     this.timeEl.textContent = fmt(d ? remain : e);
+    if (this.lapEl) this.lapEl.textContent = fmt(this.splits(e).at(-1) ?? 0);
     this.el.classList.toggle('warn', !!d && remain > 0 && remain <= 10 * 60_000);
     this.el.classList.toggle('over', !!d && remain <= 0);
     if (d && this.s.startedAt) {
@@ -199,6 +220,7 @@ export class TimerWidget {
 
   private mount() {
     this.unmount();
+    this.lapEl = null;
     if (!this.s.visible) return;
     const s = this.s;
     if (s.min && this.dock) {
@@ -218,6 +240,11 @@ export class TimerWidget {
         this.timeEl,
       );
       this.dock.appendChild(this.el);
+      if (s.startedAt) {
+        this.dock.appendChild(
+          h('button', { class: 'tb-pill timer-lap', title: '大問の区切り（ここまでの時間を記録）', 'data-testid': 'timer-lap', onclick: () => this.lap() }, `大問${(s.laps?.length ?? 0) + 1}✓`),
+        );
+      }
       this.update();
       this.tick = window.setInterval(() => this.update(), 250);
       return;
@@ -274,6 +301,18 @@ export class TimerWidget {
             h('button', { class: 'btn primary', style: 'flex:1', onclick: () => this.toggle(), 'data-testid': 'timer-toggle' }, icon(s.startedAt ? 'pause' : 'play', 18), s.startedAt ? '一時停止' : this.elapsed() ? '再開' : '開始'),
             h('button', { class: 'btn', onclick: () => this.reset(), 'aria-label': 'リセット' }, icon('reset', 18)),
           ),
+          s.startedAt || this.elapsed() > 0
+            ? h(
+                'div',
+                { class: 'timer-laps' },
+                h('button', { class: 'btn small', 'data-testid': 'timer-lap', onclick: () => this.lap() }, `大問${(s.laps?.length ?? 0) + 1} 終わり`),
+                this.splits().map((d, i, all) => {
+                  const b = h('b', null, fmt(d));
+                  if (i === all.length - 1) this.lapEl = b; // the 大問 in progress ticks with the clock
+                  return h('div', { class: 'lap-row' + (i === all.length - 1 ? ' current' : '') }, h('span', null, `大問${i + 1}`), b);
+                }),
+              )
+            : null,
         );
     this.el = h('div', { class: 'timer' + (s.min ? ' min' : '') }, head, this.timeEl, body);
     if (s.x !== undefined && s.y !== undefined) {

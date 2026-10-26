@@ -280,7 +280,7 @@ test.describe('pages', () => {
     await pen(page, line(x, y, x + 200, y + 50));
     info = await docInfo(page);
     expect(info.pages[2].strokes.length).toBe(1);
-    await page.getByTestId('overview').click();
+    await page.getByTestId('page-pill').click();
     await expect(page.locator('.page-thumb')).toHaveCount(3);
     await page.screenshot({ path: 'test-results/overview.png' });
     await page.locator('.page-thumb').first().click();
@@ -448,4 +448,29 @@ test('固定: locked objects ignore the lasso and the eraser; tap offers unlock;
   // Undo history is untouched by the auto-lock: one undo removes the image.
   await page.getByTestId('undo').click();
   expect((await docInfo(page)).pages[0].items.length).toBe(0);
+});
+
+test('お気に入りペン: save the current pen, switch back to it in one tap, remove it', async ({ page }) => {
+  await newNotebook(page);
+  await page.getByTestId('tool-pen').click(); // already selected: opens the pen options
+  await page.getByText('万年筆', { exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.mouse.click(1200, 700);
+  await page.locator('[data-testid="color"]').nth(2).click(); // red
+  await page.getByTestId('pen-fav-add').click();
+  const s1 = await page.evaluate(() => (window as any).sumi.settings.get());
+  expect(s1.penFavorites).toEqual([{ ...s1.pen }]);
+  expect(s1.penFavorites[0].style).toBe('fountain');
+  await expect(page.getByTestId('pen-fav-add')).toBeHidden(); // the current pen is already a favourite
+  // Change pen, then one tap brings the favourite back.
+  await page.locator('[data-testid="color"]').nth(0).click();
+  await page.getByTestId('pen-fav').click();
+  const s2 = await page.evaluate(() => (window as any).sumi.settings.get());
+  expect(s2.pen).toEqual(s1.penFavorites[0]);
+  await expect(page.getByTestId('pen-fav')).toHaveClass(/on/);
+  await page.screenshot({ path: 'test-results/pen-favorites.png' });
+  // Remove it from the pen options.
+  await page.getByTestId('tool-pen').click();
+  await page.getByTestId('pen-fav-remove').click();
+  expect(await page.evaluate(() => (window as any).sumi.settings.get().penFavorites)).toEqual([]);
 });

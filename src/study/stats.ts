@@ -20,8 +20,8 @@ export class StatsTracker {
     this.save();
   }
 
-  addExam(label: string, plannedSec: number, usedSec: number) {
-    this.data.exams.unshift({ at: Date.now(), label, planned: plannedSec, used: usedSec });
+  addExam(label: string, plannedSec: number, usedSec: number, lapsSec?: number[]) {
+    this.data.exams.unshift({ at: Date.now(), label, planned: plannedSec, used: usedSec, ...(lapsSec?.length ? { laps: lapsSec } : {}) });
     this.data.exams = this.data.exams.slice(0, 200);
     this.save(true);
   }

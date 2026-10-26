@@ -18,7 +18,7 @@ export interface NewNotebookOptions {
 export interface StudyStats {
   /** seconds of active writing per local day (YYYY-MM-DD) */
   days: Record<string, number>;
-  exams: { at: number; label: string; planned: number; used: number }[];
+  exams: { at: number; label: string; planned: number; used: number; laps?: number[] }[];
 }
 
 export function dayKey(t: number): string {

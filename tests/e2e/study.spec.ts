@@ -37,7 +37,7 @@ async function importPdf(page: Page, bytes: Buffer, pages = 2) {
 
 test('PDF bookmarks become a table of contents', async ({ page }) => {
   await importPdf(page, await makePdfWithOutline(), 3);
-  await page.getByTestId('overview').click();
+  await page.getByTestId('page-pill').click();
   const items = page.getByTestId('toc').locator('.toc-item');
   await expect(items).toHaveCount(2);
   await expect(items.nth(1)).toContainText('第2章 積分');
@@ -338,4 +338,31 @@ test('まちがいノート: lasso a problem on a PDF (region) or ink (selection
   await page.waitForFunction(() => (window as any).sumi?.view?.doc?.nb?.title === 'まちがいノート');
   await page.waitForTimeout(1200);
   await page.screenshot({ path: 'test-results/mistake-card.png' });
+});
+
+test('大問ラップ: split times per question, saved with the exam log', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-26T19:00:00+09:00') });
+  await page.goto('/');
+  await page.getByText('タイマーを出す').click();
+  await page.getByText('京大 数学 150′').click();
+  await page.getByTestId('timer-toggle').click();
+  await page.clock.runFor(3 * 60_000);
+  await page.getByTestId('timer-lap').click();
+  await page.clock.runFor(4 * 60_000 + 30_000);
+  await page.getByTestId('timer-lap').click();
+  await page.clock.runFor(60_000);
+  const rows = page.locator('.timer-laps .lap-row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText('3:00');
+  await expect(rows.nth(1)).toContainText('4:30');
+  await expect(rows.nth(2)).toContainText('1:00');
+  // Reset logs the exam with its splits.
+  await page.locator('.timer button[aria-label="リセット"]').click();
+  const log = await page.evaluate(() => (window as any).sumi.stats.data.exams[0]);
+  expect(log.label).toBe('京大 数学');
+  // The installed clock also moves with real time between the clicks: allow a few seconds.
+  expect(log.laps).toHaveLength(3);
+  [180, 270, 60].forEach((sec, i) => expect(Math.abs(log.laps[i] - sec)).toBeLessThan(3));
+  await page.reload();
+  await expect(page.getByTestId('exam-log')).toContainText('大問 3/5/1分');
 });

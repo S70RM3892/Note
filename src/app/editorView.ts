@@ -8,7 +8,7 @@ import type { ToolName } from '../editor/tool';
 import { exportPng, thumbnail, waitForAssets } from '../pdf/export';
 import { pdfToPages } from '../pdf/import';
 import { exportBackup } from '../store/backup';
-import { RED_SHEET_ORANGE, type Settings } from '../store/settings';
+import { RED_SHEET_ORANGE, type PenPreset, type Settings } from '../store/settings';
 import { paintStroke } from '../core/ink';
 import type { Stroke } from '../core/types';
 import { RedSheet } from '../study/redsheet';
@@ -29,6 +29,35 @@ import { RefPane } from './refPane';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { openSettings } from './settingsView';
+
+/** Draw a sample wave stroke of a pen preset onto `cv` (CSS size W×H). */
+function drawSample(cv: HTMLCanvasElement, W: number, H: number, p: PenPreset, kind: 'pen' | 'highlighter', gamma: number, transparent = false) {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  cv.style.width = `${W}px`;
+  cv.style.height = `${H}px`;
+  const ctx = cv.getContext('2d')!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (transparent) ctx.clearRect(0, 0, cv.width, cv.height);
+  else {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const n = 70, m = Math.min(18, W * 0.12);
+  const pts = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const u = i / (n - 1);
+    pts[i * 3] = m + u * (W - 2 * m);
+    pts[i * 3 + 1] = H / 2 + Math.sin(u * Math.PI * 2.2) * (H * 0.22);
+    pts[i * 3 + 2] = Math.pow(0.15 + 0.75 * Math.sin(u * Math.PI), gamma);
+  }
+  // Keep the sample readable: thick pens are drawn thinner in tiny previews.
+  const width = Math.min(p.width, H * 0.28);
+  const stroke: Stroke = kind === 'pen' ? { id: 'preview', kind: 'pen', style: p.style, color: p.color, width, pts } : { id: 'preview', kind: 'highlighter', style: 'marker', color: p.color, width: p.width, pts };
+  paintStroke(ctx, stroke, false);
+}
 
 function median(v: number[]): number {
   const s = [...v].sort((a, b) => a - b);
@@ -273,7 +302,8 @@ export class EditorView implements View {
     const timerDock = h('span', { style: 'display:contents' });
     this.app.timer.setDock(timerDock);
     tb.append(timerDock);
-    this.pagePill = h('button', { class: 'tb-pill', onclick: () => this.overview(), 'data-testid': 'page-pill' });
+    // The page pill doubles as the ページ一覧 button.
+    this.pagePill = h('button', { class: 'tb-pill', onclick: () => this.overview(), title: 'ページ一覧', 'data-testid': 'page-pill' });
     this.zoomPill = h('button', { class: 'tb-pill', onclick: () => this.editor.fitWidth(), title: '幅に合わせる' });
     this.sheetBtn = this.btn('eyeOff', '赤シート', () => this.toggleSheet(), 'red-sheet-btn');
     tb.append(
@@ -283,7 +313,6 @@ export class EditorView implements View {
       this.btn('scan', '写真をベクターで取り込む', () => this.scan(), 'scan-btn'),
       this.btn('timer', '過去問タイマー', () => this.app.timer.show(), 'timer-btn'),
       (this.refBtn = this.btn('columns', '参照ビュー（左に別のノートを表示）', (e) => this.refMenu(e.currentTarget as HTMLElement), 'ref-btn')),
-      this.btn('grid', 'ページ一覧', () => this.overview(), 'overview'),
       this.btn('plus', 'ページを追加', () => this.addPage(), 'add-page'),
       this.btn('more', 'メニュー', (e) => this.moreMenu(e.currentTarget as HTMLElement), 'more'),
     );
@@ -319,6 +348,8 @@ export class EditorView implements View {
     this.positionSelMenu();
   }
 
+  private paletteTool: ToolName | null = null;
+
   private renderPalette() {
     const s = this.app.settings.get();
     const set = (p: Partial<Settings>) => this.app.settings.update(p);
@@ -335,6 +366,7 @@ export class EditorView implements View {
         ...sizes(PEN_SIZES, s.pen.width, (v) => set({ pen: { ...s.pen, width: v } }), (v) => 3 + v * 2.2),
       ];
       if (t === 'text') nodes = nodes.slice(0, s.penColors.length);
+      else nodes.push(h('div', { class: 'tb-sep' }), ...this.favoriteButtons(s));
     } else if (t === 'highlighter') {
       nodes = [
         ...colors(s.highlighterColors, s.highlighter.color, (c) => set({ highlighter: { ...s.highlighter, color: c } })),
@@ -359,7 +391,37 @@ export class EditorView implements View {
       ];
     }
     this.palette.replaceChildren(...nodes);
+    if (this.paletteTool !== t) this.palette.scrollLeft = 0; // a new tool starts with its colours in view
+    this.paletteTool = t;
     this.sync();
+  }
+
+  /** お気に入りペン in the toolbar: tap to use, ☆＋ to save the current pen. */
+  private favoriteButtons(s: Settings): HTMLElement[] {
+    const same = (a: PenPreset, b: PenPreset) => a.style === b.style && a.color.toLowerCase() === b.color.toLowerCase() && Math.abs(a.width - b.width) < 0.05;
+    const favs = s.penFavorites.map((f, i) => {
+      const cv = h('canvas');
+      drawSample(cv, 32, 22, f, 'pen', s.pressureGamma, true);
+      return h('button', { class: 'tb-fav' + (same(f, s.pen) ? ' on' : ''), 'aria-label': `お気に入りペン ${i + 1}`, 'data-testid': 'pen-fav', onclick: () => this.app.settings.update({ pen: { ...f } }) }, cv);
+    });
+    const known = s.penFavorites.some((f) => same(f, s.pen));
+    const add = h(
+      'button',
+      {
+        class: 'tb-fav add',
+        'aria-label': '今のペンをお気に入りに登録',
+        title: '今のペンをお気に入りに登録',
+        'data-testid': 'pen-fav-add',
+        hidden: known || s.penFavorites.length >= 8,
+        onclick: () => {
+          const cur = this.app.settings.get();
+          this.app.settings.update({ penFavorites: [...cur.penFavorites, { ...cur.pen }] });
+          toast('お気に入りに登録した（消すときはペンをもう一度タップ）');
+        },
+      },
+      icon('star', 16),
+    );
+    return [...favs, add];
   }
 
   private toolOptions(t: ToolName, anchor: HTMLElement) {
@@ -408,6 +470,32 @@ export class EditorView implements View {
         customColor('penColors'),
         h('p', { class: 'muted', style: 'font-size:12px' }, `オレンジ（${RED_SHEET_ORANGE}）と赤は赤シートで消える。答えはこの色で書け。`),
       );
+      if (s.penFavorites.length) {
+        const list = h('div', { class: 'fav-list' });
+        const renderFavs = () =>
+          list.replaceChildren(
+            ...st.get().penFavorites.map((f, i) => {
+              const cv = h('canvas');
+              drawSample(cv, 120, 28, f, 'pen', s.pressureGamma, true);
+              return h(
+                'div',
+                { class: 'fav-row' },
+                cv,
+                h('button', {
+                  class: 'icon-btn',
+                  'aria-label': 'お気に入りから外す',
+                  'data-testid': 'pen-fav-remove',
+                  onclick: () => {
+                    set({ penFavorites: st.get().penFavorites.filter((_, j) => j !== i) });
+                    renderFavs();
+                  },
+                }, icon('close', 16)),
+              );
+            }),
+          );
+        renderFavs();
+        wrap.append(h('h4', null, 'お気に入りペン'), list);
+      }
     } else if (t === 'highlighter') {
       wrap.append(
         h('h4', null, '太さ'),
@@ -449,28 +537,11 @@ export class EditorView implements View {
   /** Live sample stroke for the pen/highlighter popover. */
   private strokePreview(kind: 'pen' | 'highlighter'): HTMLCanvasElement {
     const W = 296, H = 54;
-    const dpr = window.devicePixelRatio || 1;
-    const cv = h('canvas', { class: 'preview-line', width: W * dpr, height: H * dpr, style: `width:${W}px;height:${H}px` });
+    const cv = h('canvas', { class: 'preview-line' });
     const draw = () => {
       const s = this.app.settings.get();
-      const ctx = cv.getContext('2d')!;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, cv.width, cv.height);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const n = 70;
-      const pts = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) {
-        const u = i / (n - 1);
-        pts[i * 3] = 18 + u * (W - 36);
-        pts[i * 3 + 1] = H / 2 + Math.sin(u * Math.PI * 2.2) * (H * 0.22);
-        pts[i * 3 + 2] = Math.pow(0.15 + 0.75 * Math.sin(u * Math.PI), s.pressureGamma);
-      }
-      const stroke: Stroke =
-        kind === 'pen'
-          ? { id: 'preview', kind: 'pen', style: s.pen.style, color: s.pen.color, width: s.pen.width, pts }
-          : { id: 'preview', kind: 'highlighter', style: 'marker', color: s.highlighter.color, width: s.highlighter.width, pts };
-      paintStroke(ctx, stroke, false);
+      const preset: PenPreset = kind === 'pen' ? s.pen : { style: 'marker', color: s.highlighter.color, width: s.highlighter.width };
+      drawSample(cv, W, H, preset, kind, s.pressureGamma);
     };
     draw();
     const unsub = this.app.settings.subscribe(() => {

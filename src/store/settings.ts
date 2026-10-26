@@ -10,6 +10,8 @@ export interface PenPreset {
 export interface Settings {
   // Pen & input
   pen: PenPreset;
+  /** お気に入りペン: saved pen type + colour + width, one tap away in the toolbar. */
+  penFavorites: PenPreset[];
   highlighter: { color: string; width: number };
   penColors: string[];
   highlighterColors: string[];
@@ -53,6 +55,7 @@ export const MEMORY_GREEN = '#00c853';
 
 export const DEFAULT_SETTINGS: Settings = {
   pen: { style: 'ballpoint', color: '#1a1a1a', width: 2.2 },
+  penFavorites: [],
   highlighter: { color: '#fff176', width: 16 },
   penColors: ['#1a1a1a', '#1e4fd8', '#d32f2f', RED_SHEET_ORANGE, '#2e7d32', '#7b1fa2'],
   highlighterColors: ['#fff176', '#f8bbd0', '#b3e5fc', '#c5e1a5', '#ffcc80', MEMORY_GREEN],

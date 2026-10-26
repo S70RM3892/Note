@@ -97,6 +97,11 @@ select {
   flex: none;
 }
 
+/* The editor toolbar is full at 1280 px (Tab S11 landscape): a little narrower, same height. */
+.toolbar .icon-btn {
+  width: 38px;
+}
+
 .icon-btn:active,
 .icon-btn.active {
   background: var(--accent-soft);
@@ -705,7 +710,9 @@ select.input {
   height: 40px;
   line-height: 40px;
   border-radius: 10px;
-  flex: none;
+  /* A long title gives way (ellipsis) before the palette does. */
+  flex: 0 3 auto;
+  min-width: 56px;
 }
 
 .tb-sep {
@@ -717,8 +724,8 @@ select.input {
 }
 
 .tb-color {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   flex: none;
   margin: 0 3px;
@@ -735,7 +742,7 @@ select.input {
 }
 
 .tb-size {
-  width: 36px;
+  width: 32px;
   height: 40px;
   display: grid;
   place-items: center;
@@ -1340,7 +1347,19 @@ select.input {
 .tb-palette {
   display: flex;
   align-items: center;
-  flex: none;
+  /* Shrinks (and scrolls sideways) before the page/menu buttons on the right get pushed out. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  height: 100%;
+  padding: 0 6px;
+  /* Fade the right edge so it's clear the row scrolls when it doesn't fit. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+}
+.tb-palette::-webkit-scrollbar {
+  display: none;
 }
 
 /* Portrait / split screen: the palette moves to a second row so actions stay visible. */
@@ -1356,7 +1375,8 @@ select.input {
   .tb-palette {
     order: 99;
     flex-basis: 100%;
-    justify-content: center;
+    height: auto;
+    justify-content: safe center;
     padding: 2px 0;
     border-top: 1px solid var(--line);
     margin-top: 4px;
@@ -1425,4 +1445,64 @@ select.input {
 }
 .ocr-alts .chips {
   margin-top: 6px;
+}
+
+.tb-fav {
+  height: 36px;
+  min-width: 38px;
+  padding: 0 2px;
+  border-radius: 10px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  margin: 0 2px;
+  border: 1.5px solid transparent;
+}
+.tb-fav.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.tb-fav.add {
+  min-width: 34px;
+  color: var(--muted);
+  border: 1.5px dashed var(--line);
+}
+.tb-fav.add[hidden] {
+  display: none;
+}
+.fav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fav-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.timer-laps {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.timer-laps .btn {
+  align-self: flex-start;
+  margin-bottom: 4px;
+}
+.timer-laps .lap-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.timer-laps .lap-row.current {
+  color: var(--muted);
+}
+.timer-lap {
+  margin-left: 4px;
 }
