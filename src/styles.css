@@ -1866,3 +1866,88 @@ select.input {
   white-space: pre;
   resize: vertical;
 }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.link-btn {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+}
+.link-btn:active {
+  background: var(--surface-2);
+}
+.mark-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 2px 4px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 13px;
+}
+.mark-row svg {
+  flex: none;
+  color: var(--accent);
+  fill: currentColor;
+}
+.mark-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mark-row small {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mark-row:active {
+  background: var(--surface-2);
+}
+.mark-all {
+  display: flex;
+  flex-direction: column;
+  min-width: min(520px, 80vw);
+}
+
+.timer-pace {
+  margin: -2px 0 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.timer-pace.over {
+  color: var(--danger);
+  font-weight: 700;
+}
+.timer-questions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 8px;
+  font-size: 13px;
+}
+.timer-questions .muted {
+  margin-right: 4px;
+}
+.timer-lap.over {
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface));
+  color: var(--danger);
+}
+.timer.pomo-break .timer-time {
+  color: #2e7d32;
+}

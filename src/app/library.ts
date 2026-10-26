@@ -17,6 +17,8 @@ import { openScanDialog } from './scanDialog';
 import { formatExamDate, upcomingExams } from '../study/countdown';
 import { heatmap, lastNDays, streak, weekCompare } from '../study/heatmap';
 import { subjectBreakdown } from '../study/subjects';
+import { examCsv, studyCsv } from '../study/csv';
+import type { BookmarkEntry } from '../store/repo';
 import { addTodo, pruneTodos, removeTodo, toggleTodo, visibleTodos, type Todo } from '../study/todo';
 import { indexHandwriting } from '../ink/recognize';
 import { maybeAutoBackup } from './autoBackup';
@@ -144,6 +146,7 @@ export class LibraryView implements View {
     const s = settings.get();
     const backupAge = s.lastBackup ? Math.floor((now - s.lastBackup) / 86400000) : Infinity;
     const exams = upcomingExams(s.exams);
+    const marks = await repo.listBookmarks().catch(() => [] as BookmarkEntry[]);
     this.todoEl ??= this.todoCard();
     const focused = this.todoEl.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     clear(this.strip);
@@ -184,10 +187,18 @@ export class LibraryView implements View {
         ),
       ),
       this.historyCard(stats.data.days, stats.data.byNb ?? {}),
+      this.bookmarksCard(marks),
       h(
         'div',
         { class: 'card' },
-        h('h3', null, '過去問タイマー'),
+        h(
+          'h3',
+          { class: 'card-head' },
+          '過去問タイマー',
+          stats.data.exams.length
+            ? h('button', { class: 'link-btn', 'data-testid': 'exam-csv', onclick: () => void shareOrDownload(new Blob([examCsv(stats.data.exams)], { type: 'text/csv' }), `sumi-exams-${this.today()}.csv`) }, 'CSV')
+            : null,
+        ),
         h('div', { class: 'muted', style: 'font-size:13px;margin-bottom:8px' }, '京大工学部の個別試験時間でセット'),
         h('button', { class: 'btn small', onclick: () => this.app.timer.show() }, icon('timer', 16), 'タイマーを出す'),
         stats.data.exams.length
@@ -303,6 +314,43 @@ export class LibraryView implements View {
     );
   }
 
+  private today() {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  /** しおり from every notebook, newest first: one tap opens the page. */
+  private bookmarksCard(all: BookmarkEntry[]): HTMLElement | null {
+    const nbs = new Map(this.notebooks.map((n) => [n.id, n]));
+    const live = all
+      .map((b) => ({ b, nb: nbs.get(b.nb) }))
+      .filter((x): x is { b: BookmarkEntry; nb: Notebook } => !!x.nb && x.nb.pages.includes(x.b.page))
+      .sort((a, b) => b.b.at - a.b.at);
+    if (!live.length) return null;
+    const row = ({ b, nb }: { b: BookmarkEntry; nb: Notebook }) => {
+      const i = nb.pages.indexOf(b.page);
+      return h(
+        'button',
+        { class: 'mark-row', 'data-testid': 'lib-mark', onclick: () => this.app.go(`#/nb/${nb.id}/${i}`) },
+        icon('bookmark', 14),
+        h('span', { class: 'mark-row-label' }, b.label || `${i + 1}ページ`),
+        h('small', { class: 'muted' }, `${nb.title} p.${i + 1}`),
+      );
+    };
+    const more =
+      live.length > 5
+        ? h(
+            'button',
+            {
+              class: 'link-btn',
+              onclick: () => modal(`しおり（${live.length}）`, h('div', { class: 'mark-all' }, live.map(row))),
+            },
+            `すべて（${live.length}）`,
+          )
+        : null;
+    return h('div', { class: 'card marks', 'data-testid': 'lib-marks' }, h('h3', { class: 'card-head' }, 'しおり', more), live.slice(0, 5).map(row));
+  }
+
   /** 学習の記録: 16 weeks of study time as a calendar heatmap, the streak and recent totals. */
   private historyCard(days: Record<string, number>, byNb: Record<string, Record<string, number>>): HTMLElement {
     const grid = heatmap(days);
@@ -312,7 +360,20 @@ export class LibraryView implements View {
     return h(
       'div',
       { class: 'card history', 'data-testid': 'history' },
-      h('h3', null, '学習の記録'),
+      h(
+        'h3',
+        { class: 'card-head' },
+        '学習の記録',
+        h(
+          'button',
+          {
+            class: 'link-btn',
+            'data-testid': 'study-csv',
+            onclick: () => void shareOrDownload(new Blob([studyCsv(days, byNb, this.notebooks, this.folders)], { type: 'text/csv' }), `sumi-study-${this.today()}.csv`),
+          },
+          'CSV',
+        ),
+      ),
       h(
         'div',
         { class: 'row', style: 'gap:10px;align-items:baseline' },

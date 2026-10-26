@@ -20,7 +20,7 @@ import { copyRegionAsImage, padRect, sendToMistakes } from './capture';
 import { writingStrokes } from '../ink/lines';
 import { recognizeStrokes, type RecognizedLine } from '../ink/recognize';
 import { nativeInk } from '../platform';
-import { LINE_HEIGHT } from '../editor/paint';
+import { LINE_HEIGHT, layoutText } from '../editor/paint';
 import { exportNotebookPdfDialog } from './exportDialog';
 import { imageItem } from './importers';
 import { chipGroup, paperFields, swatchGroup } from './newNotebook';
@@ -605,6 +605,33 @@ export class EditorView implements View {
         const close = popover(this.selMenu, wrap);
       }),
       b('tape', 'テープで隠す', () => sel.toTape(), 'sel-tape'),
+      b('pen', '太さ', () => {
+        const widths = [
+          { w: 1.2, label: '細' },
+          { w: 2, label: '標準' },
+          { w: 3, label: '太' },
+          { w: 4.5, label: '極太' },
+        ];
+        const wrap = h(
+          'div',
+          { class: 'chips', 'data-testid': 'sel-widths' },
+          widths.map((x) =>
+            h(
+              'button',
+              {
+                class: 'chip',
+                onclick: () => {
+                  const n = sel.rewidth(x.w);
+                  close();
+                  if (!n) toast('ペンの線が選ばれていない');
+                },
+              },
+              x.label,
+            ),
+          ),
+        );
+        const close = popover(this.selMenu, wrap);
+      }, 'sel-width'),
       b('square', '図形に整える', () => {
         const n = sel.toShapes();
         toast(n ? `${n}本を図形にした` : '図形として読めなかった（直線・円・楕円・多角形・折れ線）');
@@ -841,6 +868,26 @@ export class EditorView implements View {
     doc.commit([{ pageId: page.id, before, after: { strokes: [], items: [] } }]);
   }
 
+  /**
+   * A line of text in the top margin of the page being worked on (the timer's result, the date):
+   * left- or right-aligned, one undo step.
+   */
+  stampText(text: string, align: 'left' | 'right'): boolean {
+    const doc = this.doc;
+    if (!doc || doc.readOnly) return false;
+    const page = doc.pages[this.editor.currentPage];
+    const size = 12;
+    const margin = 10 * (96 / 25.4);
+    const lay = layoutText(text, size, page.w - 2 * margin);
+    const x = align === 'left' ? margin : page.w - margin - lay.w;
+    // Below any stamp already there, so they don't pile up on each other.
+    let y = 4 * (96 / 25.4);
+    for (const it of page.items) if (it.type === 'text' && it.y < 30 * (96 / 25.4) && it.y + it.h > y && it.x < x + lay.w && it.x + it.w > x) y = it.y + it.h + 2;
+    const item: TextItem = { id: uid(), type: 'text', x, y, w: lay.w, h: lay.h, rot: 0, text, size, color: '#5f6368' };
+    doc.addItems(page.id, [item]);
+    return true;
+  }
+
   /** Writing into the bottom of the last page: the next page is there before it's needed. */
   private maybeAppendPage(pageId: string, s: Stroke) {
     const doc = this.doc;
@@ -922,6 +969,28 @@ export class EditorView implements View {
     const m = modal('このページの履歴', h('div', null, h('p', { class: 'muted', style: 'margin:0 0 12px;font-size:13px' }, '書いている間10分ごとと、大きく消したときに残る（1ページ30個まで）。タップでその時点に戻す。'), grid), { wide: true });
   }
 
+  /** Keep the library's list of しおり in step with this page's. */
+  private indexMark(page: Page) {
+    const doc = this.doc;
+    if (!doc) return;
+    const label = page.mark === undefined ? undefined : markLabel(page, doc.indexOf(page.id));
+    void this.app.repo.setBookmark(doc.nb.id, page.id, label).catch((e) => console.warn('bookmarks', e));
+  }
+
+  /** 解き直し: the handwriting goes aside as 前回の解答, the page is blank again (undo brings it back). */
+  private startOver(page: Page) {
+    const doc = this.doc;
+    if (!doc?.startOver(page.id)) return;
+    this.editor.showPrev = false;
+    toast('白紙にした。⋯ →「前回の解答を薄く重ねる」で答え合わせ（元に戻すで戻る）', 3500);
+  }
+
+  private togglePrev() {
+    this.editor.showPrev = !this.editor.showPrev;
+    this.editor.renderer.request();
+    toast(this.editor.showPrev ? '前回の解答を薄く表示中' : '前回の解答を隠した', 1500);
+  }
+
   /** しおり: bookmark the current page (or remove its bookmark). */
   private toggleMark() {
     const doc = this.doc;
@@ -935,6 +1004,7 @@ export class EditorView implements View {
       doc.setMark(page.id, undefined);
       toast('しおりを外した');
     }
+    this.indexMark(page);
     this.sync();
   }
 
@@ -955,6 +1025,7 @@ export class EditorView implements View {
       sendTo: (p, move) => void this.sendPageTo(p, move),
       setMark: (p, label) => {
         doc.setMark(p.id, label);
+        this.indexMark(p);
         this.sync();
       },
     });
@@ -1129,6 +1200,18 @@ export class EditorView implements View {
       { label: this.reviewIds.has(page.id) ? 'このページを復習から外す' : 'このページを復習に追加', icon: 'brain', onClick: () => this.toggleReview(page) },
       { label: 'このページの固定をすべて解除', icon: 'unlock', onClick: () => this.unlockPage(page) },
       { label: 'このページの履歴（復元）', icon: 'reset', onClick: () => void this.pageHistory(page) },
+      { label: '白紙にして解き直す', icon: 'eraser', disabled: !page.strokes.some((s) => !s.locked), onClick: () => this.startOver(page) },
+      ...(page.prev?.strokes.length
+        ? [{ label: this.editor.showPrev ? '前回の解答を隠す' : '前回の解答を薄く重ねる', icon: 'eye' as const, onClick: () => this.togglePrev() }]
+        : []),
+      {
+        label: '今日の日付を入れる',
+        icon: 'pencil',
+        onClick: () => {
+          const d = new Date();
+          this.stampText(`${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}(${'日月火水木金土'[d.getDay()]})`, 'right');
+        },
+      },
       { label: '全テープを隠す', icon: 'eyeOff', onClick: () => this.editor.setAllTapes(true) },
       { label: '全テープをめくる', icon: 'eye', onClick: () => this.editor.setAllTapes(false) },
       null,

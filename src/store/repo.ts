@@ -44,6 +44,14 @@ export interface StoredContent {
   updated: number;
 }
 
+/** しおり across notebooks (an index kept next to the pages, so the library needn't read every page). */
+export interface BookmarkEntry {
+  nb: string;
+  page: string;
+  label: string;
+  at: number;
+}
+
 /** A page keeps a snapshot at most this often while it is being edited… */
 export const SNAPSHOT_EVERY = 10 * 60_000;
 /** …and its newest this many. */
@@ -199,6 +207,30 @@ export class Repo {
     }
   }
 
+  /** All しおり (built from the pages once, then kept up to date by setBookmark). */
+  async listBookmarks(): Promise<BookmarkEntry[]> {
+    const known = await this.kvGet<BookmarkEntry[]>('bookmarks');
+    if (known) return known;
+    const pages = await this.db.getAll<Page>('pages');
+    const list = pages
+      .filter((p) => p.mark !== undefined)
+      .map((p) => ({ nb: p.nb, page: p.id, label: (p.mark || p.ink || p.text || '').replace(/\s+/g, ' ').trim().slice(0, 40), at: p.updated }));
+    await this.kvSet('bookmarks', list);
+    return list;
+  }
+
+  /** Add, rename (label) or remove (undefined) the しおり of a page in the index. */
+  async setBookmark(nb: string, page: string, label: string | undefined, now = Date.now()) {
+    const list = (await this.listBookmarks()).filter((b) => b.page !== page);
+    if (label !== undefined) list.push({ nb, page, label: label.slice(0, 40), at: now });
+    await this.kvSet('bookmarks', list);
+  }
+
+  /** After pages arrive in bulk (a restore, a copied notebook): the next listBookmarks rebuilds the index. */
+  forgetBookmarks() {
+    return this.db.delete('kv', 'bookmarks');
+  }
+
   /** ページの履歴, newest first. */
   async listVersions(pageId: string): Promise<PageVersion[]> {
     return (await this.db.getAllByIndex<PageVersion>('versions', 'page', pageId)).sort((a, b) => b.at - a.at || (a.id < b.id ? 1 : -1));
@@ -236,6 +268,7 @@ export class Repo {
     const copies = pages.map((p) => ({ ...structuredClone(p), id: uid(), nb: nb.id }));
     nb.pages = copies.map((p) => p.id);
     await this.db.write({ put: [['notebooks', nb], ...copies.map((p) => ['pages', p] as ['pages', Page])] });
+    if (copies.some((p) => p.mark !== undefined)) await this.forgetBookmarks();
     return nb;
   }
 

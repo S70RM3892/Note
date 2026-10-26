@@ -58,8 +58,9 @@ async function scanDoc(repo: Repo, it: ScanItem) {
 }
 
 export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeExport; title?: string }): Promise<Blob> {
-  const { PDFDocument, rgb, degrees, BlendMode } = await import('pdf-lib');
+  const { PDFDocument, rgb, degrees, BlendMode, StandardFonts } = await import('pdf-lib');
   const out = await PDFDocument.create();
+  let labelFont: Awaited<ReturnType<typeof out.embedFont>> | undefined;
   if (opts.title) out.setTitle(opts.title);
   out.setCreator('Sumi Note');
   const srcDocs = new Map<string, Awaited<ReturnType<typeof PDFDocument.load>>>();
@@ -111,6 +112,20 @@ export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeEx
       drawLines(tg.strong, strong, tg.width * PT * 1.4);
       for (let i = 0; i < tg.dots.length; i += 2) {
         p.drawCircle({ x: tg.dots[i] * PT, y: H - tg.dots[i + 1] * PT, size: 0.7, color: rgb(...strong.c), opacity: strong.a });
+      }
+      for (let i = 0; i < tg.rings.length; i += 4) {
+        p.drawEllipse({ x: tg.rings[i] * PT, y: H - tg.rings[i + 1] * PT, xScale: tg.rings[i + 2] * PT, yScale: tg.rings[i + 3] * PT, borderColor: rgb(...strong.c), borderOpacity: strong.a, borderWidth: tg.width * PT });
+      }
+      if (tg.labels.length) {
+        // Mark-sheet numbers. The standard PDF font has no Japanese, so the 解答番号 heading is left out.
+        const font = (labelFont ??= await out.embedFont(StandardFonts.Helvetica));
+        for (const t of tg.labels) {
+          if (!/^[0-9]+$/.test(t.text)) continue;
+          const size = t.size * PT;
+          const tw = font.widthOfTextAtSize(t.text, size);
+          const col = t.faint ? line : strong;
+          p.drawText(t.text, { x: t.x * PT - tw / 2, y: H - t.y * PT - size * 0.35, size, font, color: rgb(...col.c), opacity: col.a });
+        }
       }
     }
     const dark = !page.pdf && isDarkColor(page.bg.color);

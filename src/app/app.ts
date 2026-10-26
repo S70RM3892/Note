@@ -89,6 +89,11 @@ export class App {
   private wakeLock: WakeLockSentinel | null = null;
 
   /** 集中モード while the exam clock runs: keep the screen on, and in the APK optionally pin the app. */
+  /** 過去問タイマー → the page: the result line at the top of the page being worked on. */
+  stampResult(text: string): boolean {
+    return this.view instanceof EditorView && this.view.stampText(text, 'left');
+  }
+
   onTimerRunning(running: boolean) {
     if (!running) this.sleepLock.check();
     if (native) {

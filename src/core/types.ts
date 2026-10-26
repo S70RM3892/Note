@@ -72,7 +72,7 @@ export interface VectorDoc {
   layers: { color: string; tiles: { b: [number, number, number, number]; d: string }[] }[];
 }
 
-export type TemplateId = 'blank' | 'ruled' | 'grid' | 'dots' | 'cornell' | 'split' | 'genkou' | 'english' | 'section';
+export type TemplateId = 'blank' | 'ruled' | 'grid' | 'dots' | 'cornell' | 'split' | 'genkou' | 'english' | 'section' | 'hex' | 'marksheet';
 
 export interface PageBackground {
   tpl: TemplateId;
@@ -105,6 +105,8 @@ export interface Page {
   inkSig?: string;
   /** しおり: the page is bookmarked, with this label ('' = untitled). */
   mark?: string;
+  /** 解き直し: the handwriting of the previous attempt, set aside when the page was cleared to try again. */
+  prev?: { at: number; strokes: Stroke[] };
   strokes: Stroke[];
   items: Item[];
   updated: number;

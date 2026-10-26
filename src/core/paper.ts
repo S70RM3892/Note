@@ -26,7 +26,74 @@ export const TEMPLATES: { id: TemplateId; label: string; spacing: number }[] = [
   { id: 'section', label: '方眼 1cm強調', spacing: 5 },
   { id: 'english', label: '英語4線', spacing: 4 },
   { id: 'genkou', label: '原稿用紙 400字', spacing: 8 },
+  { id: 'hex', label: '六角方眼（構造式）', spacing: 6 },
+  { id: 'marksheet', label: 'マークシート', spacing: 5 },
 ];
+
+/**
+ * 六角方眼: a honeycomb of hexagons with one vertex up, edge length `side` — bonds at 120° fall
+ * on its lines (skeletal formulas, benzene rings). Edges as a flat x1,y1,x2,y2 list, each once.
+ */
+export function hexEdges(w: number, h: number, side: number): number[] {
+  const dx = Math.sqrt(3) * side, dy = 1.5 * side;
+  const out: number[] = [];
+  const seen = new Set<string>();
+  const key = (x: number, y: number) => `${Math.round(x * 10)},${Math.round(y * 10)}`;
+  for (let r = -1; r * dy <= h + side; r++) {
+    const cy = r * dy;
+    const off = r % 2 ? dx / 2 : 0;
+    for (let cx = off - dx; cx <= w + dx; cx += dx) {
+      const v: [number, number][] = [];
+      for (let k = 0; k < 6; k++) {
+        const a = Math.PI / 2 + (k * Math.PI) / 3;
+        v.push([cx + side * Math.cos(a), cy + side * Math.sin(a)]);
+      }
+      for (let k = 0; k < 6; k++) {
+        const [x1, y1] = v[k], [x2, y2] = v[(k + 1) % 6];
+        const id = [key(x1, y1), key(x2, y2)].sort().join('|');
+        if (seen.has(id)) continue;
+        seen.add(id);
+        // Clip to the page (lines entirely outside are dropped; the rest is cut by the page edge when painted).
+        if (Math.max(x1, x2) < 0 || Math.min(x1, x2) > w || Math.max(y1, y2) < 0 || Math.min(y1, y2) > h) continue;
+        out.push(x1, y1, x2, y2);
+      }
+    }
+  }
+  return out;
+}
+
+/** マークシート: rows of numbered answers, each with bubbles 1–9, 0 (共通テスト-style vertical ovals). */
+export function markSheet(w: number, h: number, pitch: number): { rings: number[]; labels: TemplateLabel[]; rows: number } {
+  const rings: number[] = [];
+  const labels: TemplateLabel[] = [];
+  const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+  const top = 22 * MM, bottom = h - 14 * MM;
+  const rowH = pitch * 1.45;
+  const numW = pitch * 1.9;
+  const blockW = numW + digits.length * pitch;
+  const gap = pitch * 1.6;
+  const blocks = Math.max(1, Math.floor((w - 20 * MM + gap) / (blockW + gap)));
+  const x0 = (w - (blocks * blockW + (blocks - 1) * gap)) / 2;
+  const perBlock = Math.max(1, Math.floor((bottom - top) / rowH) - 1);
+  const rx = pitch * 0.3, ry = pitch * 0.48, small = pitch * 0.42;
+  let n = 0;
+  for (let b = 0; b < blocks; b++) {
+    const bx = x0 + b * (blockW + gap);
+    labels.push({ x: bx + numW / 2, y: top - rowH * 0.15, text: '解答番号', size: small * 0.9 });
+    digits.forEach((d, i) => labels.push({ x: bx + numW + (i + 0.5) * pitch, y: top - rowH * 0.15, text: d, size: small }));
+    for (let r = 0; r < perBlock; r++) {
+      n++;
+      const cy = top + (r + 0.5) * rowH + rowH * 0.35;
+      labels.push({ x: bx + numW / 2, y: cy, text: String(n), size: pitch * 0.55 });
+      digits.forEach((d, i) => {
+        const cx = bx + numW + (i + 0.5) * pitch;
+        rings.push(cx, cy, rx, ry);
+        labels.push({ x: cx, y: cy, text: d, size: small, faint: true });
+      });
+    }
+  }
+  return { rings, labels, rows: n };
+}
 
 /**
  * 原稿用紙: 20 columns of 20 squares (written top-to-bottom, right-to-left). Columns are separated
@@ -54,10 +121,23 @@ export const PAPER_COLORS: { color: string; label: string }[] = [
   { color: '#20362b', label: '黒板' },
 ];
 
+/** A little printed text on the paper (mark-sheet numbers), centred on (x, y). */
+export interface TemplateLabel {
+  x: number;
+  y: number;
+  text: string;
+  size: number;
+  /** Printed inside a bubble: lighter, so a filled mark reads clearly. */
+  faint?: boolean;
+}
+
 export interface TemplateGeometry {
   lines: number[]; // flat x1,y1,x2,y2
   strong: number[]; // emphasized lines
   dots: number[]; // flat x,y
+  /** Ovals: flat cx,cy,rx,ry. */
+  rings: number[];
+  labels: TemplateLabel[];
   color: string;
   strongColor: string;
   width: number;
@@ -69,6 +149,8 @@ export function templateGeometry(w: number, h: number, bg: PageBackground): Temp
     lines: [],
     strong: [],
     dots: [],
+    rings: [],
+    labels: [],
     color: dark ? 'rgba(255,255,255,0.13)' : 'rgba(96,125,165,0.28)',
     strongColor: dark ? 'rgba(255,255,255,0.28)' : 'rgba(96,125,165,0.55)',
     width: 0.9,
@@ -126,6 +208,15 @@ export function templateGeometry(w: number, h: number, bg: PageBackground): Temp
       }
       break;
     }
+    case 'hex':
+      g.lines = hexEdges(w, h, sp);
+      break;
+    case 'marksheet': {
+      const m = markSheet(w, h, sp);
+      g.rings = m.rings;
+      g.labels = m.labels;
+      break;
+    }
     case 'genkou': {
       const { cols, cell, y0 } = genkouGrid(w, h);
       const y1 = y0 + 20 * cell;
@@ -181,5 +272,24 @@ export function drawPaper(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderi
       ctx.arc(g.dots[i], g.dots[i + 1], r, 0, Math.PI * 2);
     }
     ctx.fill();
+  }
+  if (g.rings.length) {
+    ctx.beginPath();
+    for (let i = 0; i < g.rings.length; i += 4) {
+      ctx.moveTo(g.rings[i] + g.rings[i + 2], g.rings[i + 1]);
+      ctx.ellipse(g.rings[i], g.rings[i + 1], g.rings[i + 2], g.rings[i + 3], 0, 0, Math.PI * 2);
+    }
+    ctx.strokeStyle = g.strongColor;
+    ctx.lineWidth = lw;
+    ctx.stroke();
+  }
+  if (g.labels.length) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const t of g.labels) {
+      ctx.font = `${t.size}px sans-serif`;
+      ctx.fillStyle = t.faint ? g.color : g.strongColor;
+      ctx.fillText(t.text, t.x, t.y);
+    }
   }
 }

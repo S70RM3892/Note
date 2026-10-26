@@ -136,5 +136,6 @@ export async function importBackup(repo: Repo, data: Uint8Array, opts: { restore
   if (manifest.reviews.length) await repo.db.write({ put: manifest.reviews.map((r) => ['reviews', r] as ['reviews', ReviewRecord]) });
   if (opts.restoreSettings && manifest.settings) await repo.kvSet('settings', manifest.settings);
   if (opts.restoreSettings && manifest.stats) await repo.kvSet('stats', manifest.stats);
+  await repo.forgetBookmarks();
   return { notebooks: manifest.notebooks.length, pages: pageCount };
 }

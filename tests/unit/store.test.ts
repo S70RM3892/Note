@@ -184,3 +184,29 @@ describe('ライナー', () => {
     expect(radiusFor('pen', 'marker', 2, 0.05)).toBe(radiusFor('pen', 'marker', 2, 1));
   });
 });
+
+describe('しおり一覧', () => {
+  it('is built from the pages once, follows setBookmark, and stays whole after a restore or a copied notebook', async () => {
+    const src = await fresh();
+    const { nb, pages } = await src.createNotebook({ title: '数学', pages: 2 });
+    pages[1].mark = '漸化式';
+    await src.savePages(pages, nb);
+    expect((await src.listBookmarks()).map((b) => b.label)).toEqual(['漸化式']);
+    await src.setBookmark(nb.id, pages[0].id, '', 5);
+    await src.setBookmark(nb.id, pages[1].id, '特性方程式', 6);
+    expect((await src.listBookmarks()).map((b) => b.label).sort()).toEqual(['', '特性方程式']);
+    await src.setBookmark(nb.id, pages[0].id, undefined);
+    expect(await src.listBookmarks()).toHaveLength(1);
+
+    // A notebook copied whole keeps its しおり, and so does the list.
+    const copy = await src.duplicateNotebook(nb);
+    expect((await src.listBookmarks()).filter((b) => b.nb === copy.id).map((b) => b.label)).toEqual(['漸化式']);
+
+    // Restoring a backup into an app whose list already exists (the library was opened first).
+    const zip = await exportBackup(src);
+    const dst = await fresh();
+    expect(await dst.listBookmarks()).toEqual([]);
+    await importBackup(dst, zip);
+    expect((await dst.listBookmarks()).map((b) => b.page).sort()).toEqual([pages[1].id, (await dst.getNotebook(copy.id))!.pages[1]].sort());
+  });
+});

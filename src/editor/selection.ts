@@ -364,6 +364,24 @@ export class SelectionManager {
     return n;
   }
 
+  /** 太さ: set the width of the selected pen strokes (highlighter strokes keep theirs). */
+  rewidth(width: number): number {
+    if (!this.active) return 0;
+    const doc = this.ed.doc!;
+    const pid = this.pageId!;
+    const before = doc.content(pid);
+    let n = 0;
+    const strokes = before.strokes.map((s) => {
+      if (!this.ids.has(s.id) || s.kind !== 'pen' || s.width === width) return s;
+      n++;
+      return { ...s, width };
+    });
+    if (!n) return 0;
+    doc.commit([{ pageId: pid, before, after: { strokes, items: before.items } }]);
+    this.set(pid, this.ids);
+    return n;
+  }
+
   /** Cover the selection with 暗記テープ. */
   toTape() {
     if (!this.active) return;

@@ -1,5 +1,5 @@
 import { itemContains } from '../core/geometry';
-import { isDarkColor } from '../core/ink';
+import { isDarkColor, paintStroke } from '../core/ink';
 import type { Page, Rect, Stroke, TapeItem } from '../core/types';
 import type { SettingsStore } from '../store/settings';
 import type { AssetCache } from './assets';
@@ -264,7 +264,17 @@ export class Editor {
     return s;
   }
 
+  /** 解き直し: show the previous attempt faintly over the page (to compare with it). */
+  showPrev = false;
+
   private paintOverlay(ctx: CanvasRenderingContext2D, page: Page, scale: number) {
+    if (this.showPrev && page.prev?.strokes.length) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      const dark = isDarkColor(page.bg.color);
+      for (const s of page.prev.strokes) paintStroke(ctx, s, dark);
+      ctx.restore();
+    }
     if (this.selection.pageId !== page.id || !this.selection.active) return;
     const m = this.selection.m;
     ctx.save();

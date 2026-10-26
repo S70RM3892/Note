@@ -192,6 +192,29 @@ export class EditorDoc {
     this.history.push({ undo: () => apply(prev), redo: () => apply(next) });
   }
 
+  /**
+   * 解き直し: set the page's handwriting aside as the previous attempt and clear it (fixed ink,
+   * images, PDF and text stay). One undo step brings the attempt back.
+   */
+  startOver(pageId: string): boolean {
+    const p = this.byId.get(pageId);
+    if (!p || this.readOnly) return false;
+    const before = this.content(pageId);
+    const keep = before.strokes.filter((s) => s.locked);
+    if (keep.length === before.strokes.length) return false;
+    const oldPrev = p.prev;
+    const prev = { at: Date.now(), strokes: before.strokes.filter((s) => !s.locked) };
+    const after = { strokes: keep, items: before.items };
+    const apply = (pv: Page['prev'], c: Content) => {
+      if (pv) p.prev = pv;
+      else delete p.prev;
+      this.setContent(pageId, c, null);
+    };
+    apply(prev, after);
+    this.history.push({ undo: () => apply(oldPrev, before), redo: () => apply(prev, after) });
+    return true;
+  }
+
   /** しおり: label to bookmark the page, undefined to remove the bookmark. */
   setMark(pageId: string, label: string | undefined) {
     const p = this.byId.get(pageId);
