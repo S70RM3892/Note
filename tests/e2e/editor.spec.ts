@@ -569,3 +569,37 @@ test('関数グラフ: typed functions become vector strokes and labels on the p
   const after = await docInfo(page);
   expect(after.pages[0].strokes.length + after.pages[0].items.length).toBe(0);
 });
+
+test('S Pen hover shows the pen tip; writing at the bottom of the last page adds a page', async ({ page }) => {
+  await newNotebook(page);
+  const cursor = () => page.evaluate(() => (window as any).sumi.editor.tools.pen.cursor);
+  const top = await page.evaluate(() => (window as any).sumi.editor.el.getBoundingClientRect().top);
+  await penHover(page, 400, 400);
+  await penHover(page, 420, 410);
+  await expect.poll(cursor).toEqual({ x: 420, y: 410 - top });
+  await page.screenshot({ path: 'test-results/pen-hover.png', clip: { x: 380, y: 370, width: 80, height: 80 } });
+  await pen(page, line(400, 300, 500, 300));
+  expect(await cursor()).toBeNull();
+  expect((await docInfo(page)).pages).toHaveLength(1); // a stroke near the top adds nothing
+
+  // Scroll the bottom of page 1 into view and write there.
+  await page.evaluate(() => {
+    const ed = (window as any).sumi.editor;
+    const r = ed.vp.rects[0];
+    ed.vp.camY = r.y + r.h - ed.vp.height / ed.vp.zoom + 40;
+    ed.vp.clampCamera();
+    ed.requestRender?.();
+    ed.renderer?.request?.();
+  });
+  const [x, y] = await pageToScreen(page, 0, 300, 1070);
+  await pen(page, line(x, y, x + 120, y));
+  expect((await docInfo(page)).pages).toHaveLength(2);
+  await expect(page.getByTestId('page-pill')).toContainText('/ 2');
+  // One undo takes back the stroke and the page it added.
+  await page.getByTestId('undo').click();
+  const after = await docInfo(page);
+  expect(after.pages).toHaveLength(1);
+  expect(after.pages[0].strokes).toHaveLength(1);
+  await page.getByTestId('redo').click();
+  expect((await docInfo(page)).pages).toHaveLength(2);
+});

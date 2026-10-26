@@ -39,6 +39,10 @@ export interface SumiNativeBridge {
   inkDownload?(): void;
   /** Recognize one line: json {id, strokes: [[x,y,t,…],…], w, h, pre}; result via onInk(json {id, candidates?, error?}). */
   recognizeInk?(json: string): void;
+  /** 就寝・復習のお知らせ: replace the daily notifications (JSON [{id, h, m, title, text, repeatText}]). */
+  setReminders?(json: string): void;
+  /** Notifications are allowed (Android 13+ asks; the user can also turn them off). */
+  notificationsAllowed?(): boolean;
 }
 
 export interface IncomingFile {
@@ -58,6 +62,8 @@ interface NativeCallbacks {
   onInk?: (json: string) => void;
   onInkModel?: (json: string) => void;
   onBackupFolder?: (json: string) => void;
+  /** Answer to the notification permission prompt. */
+  onNotifyPermission?: (granted: boolean) => void;
 }
 
 declare global {
@@ -125,7 +131,7 @@ export async function nativeFile(blob: Blob, name: string, action: 'save' | 'sha
   });
 }
 
-export function setNativeCallbacks(cb: Pick<NativeCallbacks, 'onPenButton' | 'onBack' | 'onIncoming'>) {
+export function setNativeCallbacks(cb: Pick<NativeCallbacks, 'onPenButton' | 'onBack' | 'onIncoming' | 'onNotifyPermission'>) {
   Object.assign(callbacks(), cb);
 }
 

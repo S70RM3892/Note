@@ -29,6 +29,8 @@ export class PenTool implements Tool {
   private predTimer = 0;
   /** The shell is drawing this stroke as low-latency wet ink: no live ink of our own. */
   private wet = false;
+  /** S Pen hovering: where the tip would land (screen px). */
+  private cursor: { x: number; y: number } | null = null;
 
   constructor(private ed: Editor, private kind: 'pen' | 'highlighter') {}
 
@@ -36,7 +38,41 @@ export class PenTool implements Tool {
     return radiusFor(this.kind, this.style, this.width, p);
   }
 
+  hover(s: Sample | null) {
+    const show = !!s && this.ed.settings.get().penCursor;
+    if (!show && !this.cursor) return;
+    this.cursor = show && s ? { x: s.sx, y: s.sy } : null;
+    this.ed.requestUI();
+  }
+
+  deactivate() {
+    this.cursor = null;
+  }
+
+  /** A dot the size and colour of a mid-pressure stroke, outlined so it shows on any paper. */
+  drawUI(ctx: CanvasRenderingContext2D) {
+    if (!this.cursor) return;
+    const st = this.ed.settings.get();
+    const pen = this.kind === 'pen';
+    const w = pen ? st.pen.width : st.highlighter.width;
+    const r = Math.max(1.5, radiusFor(this.kind, pen ? st.pen.style : 'marker', w, 0.5) * this.ed.vp.zoom);
+    ctx.beginPath();
+    ctx.arc(this.cursor.x, this.cursor.y, r, 0, Math.PI * 2);
+    ctx.globalAlpha = pen ? 0.75 : 0.45;
+    ctx.fillStyle = pen ? st.pen.color : st.highlighter.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(this.cursor.x, this.cursor.y, r + 1, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.stroke();
+  }
+
   down(s: Sample) {
+    if (this.cursor) this.hover(null);
     const hit = this.ed.pageAt(s.wx, s.wy);
     if (!hit) {
       this.ed.wet?.cancel();

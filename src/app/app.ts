@@ -78,7 +78,7 @@ export class App {
     if (!this.editor) {
       this.editor = new Editor(host, this.settings, this.assets);
       this.editor.toast = (m) => toast(m, 900);
-      this.editor.onActivity = () => this.stats.activity();
+      this.editor.onActivity = () => this.stats.activity(Date.now(), this.editor?.doc?.nb.id);
       this.editorHooks.splice(0).forEach((fn) => fn(this.editor!));
     } else host.appendChild(this.editor.el);
     return this.editor;

@@ -16,6 +16,7 @@ import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { formatExamDate, upcomingExams } from '../study/countdown';
 import { heatmap, lastNDays, streak } from '../study/heatmap';
+import { subjectBreakdown } from '../study/subjects';
 import { addTodo, pruneTodos, removeTodo, toggleTodo, visibleTodos, type Todo } from '../study/todo';
 import { indexHandwriting } from '../ink/recognize';
 import { maybeAutoBackup } from './autoBackup';
@@ -178,7 +179,7 @@ export class LibraryView implements View {
           days.map((d, i) => h('div', { class: 'bar' + (i === days.length - 1 ? ' today' : ''), title: formatDuration(d.sec) }, h('i', { style: `height:${Math.max(2, (d.sec / max) * 34)}px` }), d.label)),
         ),
       ),
-      this.historyCard(stats.data.days),
+      this.historyCard(stats.data.days, stats.data.byNb ?? {}),
       h(
         'div',
         { class: 'card' },
@@ -274,9 +275,11 @@ export class LibraryView implements View {
   }
 
   /** 学習の記録: 16 weeks of study time as a calendar heatmap, the streak and recent totals. */
-  private historyCard(days: Record<string, number>): HTMLElement {
+  private historyCard(days: Record<string, number>, byNb: Record<string, Record<string, number>>): HTMLElement {
     const grid = heatmap(days);
     const st = streak(days);
+    const subjects = subjectBreakdown(byNb, this.notebooks, this.folders);
+    const top = Math.max(1, ...subjects.map((r) => r.sec));
     return h(
       'div',
       { class: 'card history', 'data-testid': 'history' },
@@ -298,6 +301,22 @@ export class LibraryView implements View {
           ),
         ),
       ),
+      subjects.length
+        ? h(
+            'div',
+            { class: 'subjects', 'data-testid': 'subjects' },
+            h('div', { class: 'muted', style: 'font-size:12px;margin:10px 0 4px' }, '7日の内訳（フォルダ＝教科）'),
+            subjects.map((r) =>
+              h(
+                'div',
+                { class: 'subject' },
+                h('span', { class: 'subject-name' }, r.name),
+                h('span', { class: 'subject-bar' }, h('i', { style: `width:${Math.max(3, (r.sec / top) * 100)}%;background:${r.color}` })),
+                h('span', { class: 'subject-time' }, formatDuration(r.sec)),
+              ),
+            ),
+          )
+        : null,
     );
   }
 

@@ -41,6 +41,8 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
           w.__sumiNative.onBackupFolder(JSON.stringify({ ok: true, name: 'Drive/Sumi' }));
         }, 20),
       setFocusLock: (on: boolean) => (w.__focus ??= []).push(on),
+      setReminders: (json: string) => (w.__reminders ??= []).push(JSON.parse(json)),
+      notificationsAllowed: () => !!w.__notifyOk,
       // Wet ink: the test decides whether the shell "drew" the stroke (default: no).
       setWetInk: (json: string) => (w.__wet ??= []).push(JSON.parse(json)),
       wetClaim: () => !!w.__wetDraws,
@@ -359,4 +361,31 @@ test('low-latency wet ink: the page tells the shell where the pen draws and hand
   // The setting turns it off.
   await page.evaluate(() => (window as any).sumi.settings.update({ wetInk: false }));
   await expect.poll(async () => (await lastParams()).on).toBe(false);
+});
+
+test('就寝・復習のお知らせ: settings schedule the reminders in the shell, with today\'s review count', async ({ page }) => {
+  await fakeBridge(page);
+  await page.clock.setFixedTime(new Date('2026-10-26T12:00:00+09:00'));
+  await page.goto('/');
+  const last = () => page.evaluate(() => (window as any).__reminders?.at(-1) ?? null);
+  // Off by default: an empty list is sent once (clears anything left from before).
+  await expect.poll(last).toEqual([]);
+  await page.getByRole('button', { name: 'メニュー' }).first().click();
+  await page.getByText('設定', { exact: true }).click();
+  await page.getByText('就寝のお知らせ', { exact: true }).click();
+  await expect.poll(async () => (await last())?.map((r: any) => [r.id, r.h, r.m])).toEqual([
+    [1, 22, 30],
+    [2, 23, 0],
+  ]);
+  // Notifications not allowed in the shell: the settings say how to fix it.
+  await expect(page.getByTestId('notify-status')).toContainText('許可されていない');
+  await page.evaluate(() => ((window as any).__notifyOk = true));
+  await page.getByText('復習のお知らせ', { exact: true }).click();
+  await page.getByTestId('review-time').fill('20:30');
+  await page.getByTestId('review-time').dispatchEvent('change');
+  await expect.poll(async () => (await last())?.find((r: any) => r.id === 3)).toMatchObject({ h: 20, m: 30, title: '今日の復習' });
+  const review = (await last()).find((r: any) => r.id === 3);
+  expect(review.text).toContain('0ページ');
+  expect(review.text).toContain('共通テストまで82日'); // the nearest exam
+  await expect(page.getByTestId('notify-status')).toHaveText('');
 });

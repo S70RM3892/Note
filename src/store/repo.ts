@@ -18,6 +18,8 @@ export interface NewNotebookOptions {
 export interface StudyStats {
   /** seconds of active writing per local day (YYYY-MM-DD) */
   days: Record<string, number>;
+  /** The same per notebook (教科別): notebook id → day → seconds, last 60 days. */
+  byNb?: Record<string, Record<string, number>>;
   exams: { at: number; label: string; planned: number; used: number; laps?: number[] }[];
 }
 

@@ -68,7 +68,12 @@ android {
     sourceSets["main"].assets.srcDir(webAssets)
 
     testOptions {
-        unitTests.all { it.systemProperty("robolectric.logging", "stdout") }
+        unitTests.all {
+            it.systemProperty("robolectric.logging", "stdout")
+            // Robolectric's Android 16 runtime reaches into FileDescriptor via JDK internals, closed by
+            // default on JDK 17+.
+            it.jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED", "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+        }
     }
 }
 

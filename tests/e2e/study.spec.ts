@@ -409,3 +409,14 @@ test('学習の記録 heatmap/streak and 今日やること carry over', async (
   await expect(todos.getByTestId('todo')).toHaveCount(1);
   await expect(todos.getByTestId('todo')).toHaveText('数学 2019 第4問 解き直し');
 });
+
+test('教科別: writing time is counted per notebook and shown in 学習の記録', async ({ page }) => {
+  await newNotebook(page, '青チャート');
+  await pen(page, wave(300, 300, 300));
+  await pen(page, wave(300, 400, 300));
+  await page.getByTestId('back').click();
+  const subjects = page.getByTestId('subjects');
+  await expect(subjects).toContainText('青チャート');
+  const byNb = await page.evaluate(() => (window as any).sumi.stats.data.byNb);
+  expect(Object.values(byNb as Record<string, Record<string, number>>)[0]).toBeTruthy();
+});

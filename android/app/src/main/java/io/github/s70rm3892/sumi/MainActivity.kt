@@ -1,10 +1,12 @@
 package io.github.s70rm3892.sumi
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.view.MotionEvent
@@ -99,11 +101,22 @@ class MainActivity : ComponentActivity() {
 
     private val pickTree = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> onBackupFolderPicked(uri) }
 
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) toast("通知が許可されていない。設定 → アプリ → Sumi Note → 通知 で許可して")
+        callJs("onNotifyPermission", granted.toString())
+    }
+
+    /** Android 13+: notifications need a runtime permission (asked once the user turns a reminder on). */
+    fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && !Reminders.allowed(this)) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         cleanOldFiles()
+        Reminders.rescheduleAll(this) // force-stopping the app drops its alarms
         ink = InkRecognizer(this) // starts checking whether the handwriting model is already there
 
         assetLoader = WebViewAssetLoader.Builder()

@@ -1,4 +1,5 @@
 import { dayKey, type Repo, type StudyStats } from '../store/repo';
+import { pruneNotebookDays } from './subjects';
 
 const CONTINUOUS_GAP = 90_000; // writing again within 90 s counts as continuous study
 const MIN_CREDIT = 4_000;
@@ -9,14 +10,21 @@ export class StatsTracker {
   private timer = 0;
   private listeners = new Set<() => void>();
 
-  constructor(private repo: Repo, public data: StudyStats) {}
+  constructor(private repo: Repo, public data: StudyStats) {
+    this.data.byNb = pruneNotebookDays(this.data.byNb ?? {});
+  }
 
-  activity(now = Date.now()) {
+  /** Writing happened (in notebook `nb`). */
+  activity(now = Date.now(), nb?: string) {
     const gap = now - this.last;
     const add = gap > 0 && gap < CONTINUOUS_GAP ? gap : MIN_CREDIT;
     this.last = now;
     const k = dayKey(now);
     this.data.days[k] = (this.data.days[k] ?? 0) + add / 1000;
+    if (nb) {
+      const m = (this.data.byNb ??= {})[nb] ??= {};
+      m[k] = (m[k] ?? 0) + add / 1000;
+    }
     this.save();
   }
 

@@ -148,6 +148,14 @@ export class EditorDoc {
     this.setPages(after);
   }
 
+  /** Append a page as part of the last undo step (added because of the stroke just written). */
+  appendPageToLastStep(page: Page) {
+    const before = this.pages.slice();
+    const after = [...before, page];
+    this.applyOrder(after);
+    this.history.amend(this.structureCommand(before, after));
+  }
+
   deletePages(ids: string[]) {
     const after = this.pages.filter((p) => !ids.includes(p.id));
     if (!after.length) return false;

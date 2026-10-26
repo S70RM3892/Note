@@ -174,6 +174,7 @@ export class EditorView implements View {
     this.doc = doc;
     this.reviewIds = new Set((await repo.db.getAllByIndex<ReviewRecord>('reviews', 'nb', nb.id)).map((r) => r.id));
     this.editor.open(doc);
+    this.editor.onStroke = (pageId, s) => this.maybeAppendPage(pageId, s);
     this.editor.tapeMode = 'normal';
     doc.markNotebookDirty();
     this.titleEl.textContent = nb.title;
@@ -277,6 +278,7 @@ export class EditorView implements View {
     this.app.timer.setDock(null);
     document.removeEventListener('keydown', this.onKey);
     this.unsubs.forEach((u) => u());
+    this.editor.onStroke = () => {};
     await this.closeDoc();
     this.redSheet.hide();
     this.app.assets.trim();
@@ -842,6 +844,19 @@ export class EditorView implements View {
     const page = doc.pages[this.editor.currentPage];
     const before = doc.content(page.id);
     doc.commit([{ pageId: page.id, before, after: { strokes: [], items: [] } }]);
+  }
+
+  /** Writing into the bottom of the last page: the next page is there before it's needed. */
+  private maybeAppendPage(pageId: string, s: Stroke) {
+    const doc = this.doc;
+    if (!doc || doc.readOnly || this.review || !this.app.settings.get().autoAppendPage) return;
+    const last = doc.pages[doc.pages.length - 1];
+    if (last.id !== pageId || last.pdf) return;
+    let bottom = -Infinity;
+    for (let k = 1; k < s.pts.length; k += 3) bottom = Math.max(bottom, s.pts[k]);
+    if (bottom < last.h * 0.82) return;
+    doc.appendPageToLastStep(this.newPageLike(last));
+    toast('次のページを追加した');
   }
 
   /** しおり: bookmark the current page (or remove its bookmark). */

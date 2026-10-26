@@ -3,6 +3,7 @@ import { native, nativeIncoming, setNativeCallbacks, type SumiNativeBridge } fro
 import { toast } from '../ui/dialogs';
 import type { App } from './app';
 import { importSharedFiles } from './share';
+import { buildReminders } from '../study/reminders';
 
 /** Close the topmost popover/menu or modal, as the Escape key or a tap outside would. */
 function closeTopLayer(): boolean {
@@ -49,6 +50,7 @@ export function installNativeGlue(app: App) {
     bridge.setPenButtonAction?.(a);
   };
   syncPenButton();
+  installReminders(app, bridge);
   app.settings.subscribe(syncPenButton);
   installWetInk(app, bridge);
   setNativeCallbacks({
@@ -71,6 +73,29 @@ export function installNativeGlue(app: App) {
  * writing area. It needs to know where that area is and how the pen draws; the editor's pen
  * tool claims / confirms / cancels each wet stroke (Editor.wet).
  */
+/** 就寝・復習のお知らせ: (re)schedule whenever the settings change or the app comes back to the library. */
+function installReminders(app: App, bridge: SumiNativeBridge) {
+  if (!bridge.setReminders) return;
+  let sent = '';
+  let timer = 0;
+  const sync = async () => {
+    const reviews = await app.repo.listReviews();
+    const live = new Set((await app.repo.listNotebooks()).filter((n) => !n.trashed).map((n) => n.id));
+    const specs = buildReminders(app.settings.get(), (t) => reviews.filter((r) => r.state.due <= t && live.has(r.nb)).length);
+    const json = JSON.stringify(specs);
+    if (json === sent) return;
+    sent = json;
+    bridge.setReminders!(json);
+  };
+  const soon = () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => void sync().catch((e) => console.warn('reminders', e)), 400);
+  };
+  soon();
+  app.settings.subscribe(soon);
+  window.addEventListener('hashchange', soon);
+}
+
 function installWetInk(app: App, bridge: SumiNativeBridge) {
   if (!bridge.setWetInk || !bridge.wetClaim) return;
   app.withEditor((ed: Editor) => {

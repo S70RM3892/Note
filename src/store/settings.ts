@@ -53,6 +53,15 @@ export interface Settings {
   focusPin: boolean;
   /** APK: draw the stroke being written natively (front-buffered, lowest latency). */
   wetInk: boolean;
+  /** APK: notifications 30 minutes before bedtime and at bedtime. */
+  notifyBedtime: boolean;
+  /** APK: a daily notification with the number of pages due for review. */
+  notifyReview: boolean;
+  reviewTime: string; // HH:MM
+  /** S Pen hovering shows where (and how thick) the pen will write. */
+  penCursor: boolean;
+  /** Writing near the bottom of the last page adds the next page. */
+  autoAppendPage: boolean;
   // Notebook defaults
   defaultPaper: { size: string; tpl: string; spacing: number; color: string };
 }
@@ -93,6 +102,11 @@ export const DEFAULT_SETTINGS: Settings = {
   lastAutoBackup: 0,
   focusPin: false,
   wetInk: true,
+  notifyBedtime: false,
+  notifyReview: false,
+  reviewTime: '19:00',
+  penCursor: true,
+  autoAppendPage: true,
   defaultPaper: { size: 'a4', tpl: 'grid', spacing: 5, color: '#ffffff' },
 };
 

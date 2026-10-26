@@ -87,6 +87,8 @@ export class Editor {
   private ro: ResizeObserver;
   penSeen = false;
   onActivity: (durationMs: number) => void = () => {};
+  /** A pen/highlighter stroke was added (the view may append a page under it). */
+  onStroke: (pageId: string, s: Stroke) => void = () => {};
 
   constructor(host: HTMLElement, public settings: SettingsStore, public assets: AssetCache) {
     this.el = document.createElement('div');
@@ -267,6 +269,7 @@ export class Editor {
     this.renderer.renderNow();
     this.live.clearSoon();
     if (wet) requestAnimationFrame(() => requestAnimationFrame(() => this.wet?.done()));
+    this.onStroke(pageId, s);
   }
 
   noteActivity(ms: number) {
@@ -352,6 +355,8 @@ export class Editor {
       const t = this.activeTool ?? this.tools[this.tool];
       this.drawLockBadges(c);
       t.drawUI?.(c);
+      // Hovering with the side button held: the eraser's circle.
+      if (this.hoverTool === this.tools.eraser && t !== this.hoverTool) this.hoverTool.drawUI?.(c);
       if (t !== this.tools.lasso) this.selection.drawUI(c);
     });
   }

@@ -106,6 +106,17 @@ class NativeBridge(private val activity: MainActivity) {
         activity.wetInk.cancel()
     }
 
+    /** 就寝・復習のお知らせ: replace the daily reminders (JSON array, see Reminder); asks for permission if needed. */
+    @JavascriptInterface
+    fun setReminders(json: String) {
+        val list = runCatching { Reminders.parse(json) }.getOrNull() ?: return
+        Reminders.set(activity, list)
+        if (list.isNotEmpty()) activity.runOnUiThread { activity.askNotificationPermission() }
+    }
+
+    @JavascriptInterface
+    fun notificationsAllowed(): Boolean = Reminders.allowed(activity)
+
     /** The side button's action in the page's settings ("eraser" | "lasso" | "none"). */
     @JavascriptInterface
     fun setPenButtonAction(action: String) {

@@ -1,6 +1,6 @@
 import type { Settings } from '../store/settings';
 import type { ExamDate } from '../study/countdown';
-import { native, nativeInk, pickNativeBackupFolder } from '../platform';
+import { native, nativeInk, pickNativeBackupFolder, setNativeCallbacks } from '../platform';
 import { maybeAutoBackup } from './autoBackup';
 import { formatDate } from '../ui/dom';
 import { h } from '../ui/dom';
@@ -62,8 +62,39 @@ function apkSection(app: App, set: (p: Partial<Settings>) => void): HTMLElement[
     h('h3', null, '自動バックアップ'),
     h('div', { class: 'toggle-row' }, folder, h('div', { class: 'row', style: 'gap:6px' }, pick, now)),
     autoToggle,
+    ...(native?.setReminders ? reminderSection(app, set) : []),
     h('h3', null, '集中モード'),
     toggle('過去問タイマー中はアプリを画面に固定', '開始すると確認が出る。固定中は他のアプリに逃げられない（タイマー終了・一時停止で解除）。画面は常に点けたまま', s.focusPin, (v) => set({ focusPin: v })),
+  ];
+}
+
+/** APK only: 就寝・復習のお知らせ (scheduled by nativeGlue whenever these settings change). */
+function reminderSection(app: App, set: (p: Partial<Settings>) => void): HTMLElement[] {
+  const s = app.settings.get();
+  const status = h('div', { class: 'muted', style: 'font-size:13px', 'data-testid': 'notify-status' });
+  const render = () => {
+    const cur = app.settings.get();
+    const on = cur.notifyBedtime || cur.notifyReview;
+    const ok = native?.notificationsAllowed?.() ?? true;
+    status.textContent = !on ? '' : ok ? '' : '通知が許可されていない：設定アプリ → アプリ → Sumi Note → 通知 をオン';
+    status.style.color = on && !ok ? 'var(--danger)' : '';
+  };
+  setNativeCallbacks({ onNotifyPermission: () => render() });
+  const time = h('input', {
+    class: 'input',
+    type: 'time',
+    value: s.reviewTime,
+    style: 'width:120px',
+    'data-testid': 'review-time',
+    onchange: (e: Event) => set({ reviewTime: (e.target as HTMLInputElement).value || '19:00' }),
+  });
+  render();
+  return [
+    h('h3', null, 'お知らせ'),
+    toggle('就寝のお知らせ', `就寝時刻（${s.bedtime}）の30分前と就寝時刻に通知。アプリを閉じていても届く`, s.notifyBedtime, (v) => (set({ notifyBedtime: v }), setTimeout(render, 500))),
+    toggle('復習のお知らせ', '毎日決まった時刻に「今日の復習 N ページ」と入試までの日数を通知', s.notifyReview, (v) => (set({ notifyReview: v }), setTimeout(render, 500))),
+    h('div', { class: 'toggle-row' }, h('div', null, '復習のお知らせの時刻'), time),
+    status,
   ];
 }
 
@@ -166,6 +197,8 @@ export function openSettings(app: App) {
       ),
     ),
     native?.setWetInk ? toggle('低遅延ペン', '書いている線を Android が直接（フロントバッファで）描く。ペン先への追従が速くなる。表示がおかしいときはオフ', s.wetInk, (v) => set({ wetInk: v })) : null,
+    toggle('ペン先のプレビュー', 'S ペンを画面に近づけると、書く位置と太さを色付きの点で表示', s.penCursor, (v) => set({ penCursor: v })),
+    toggle('最後のページの下まで書いたら次のページを追加', 'PDF のページには追加しない。元に戻すで書いた線と一緒に消える', s.autoAppendPage, (v) => set({ autoAppendPage: v })),
     toggle('ペンを止めて図形補正', '書き終わりで0.45秒止めると直線・円・四角に補正', s.shapeHold, (v) => set({ shapeHold: v })),
     toggle('2本指タップで元に戻す', '3本指タップでやり直し', s.twoFingerUndo, (v) => set({ twoFingerUndo: v })),
     toggle('配置した写真・スキャンを自動で固定', '位置を決めて選択を外すと固定。投げ縄・消しゴム・手のひらで動かなくなる', s.autoLockPlaced, (v) => set({ autoLockPlaced: v })),

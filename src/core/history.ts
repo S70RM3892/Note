@@ -18,6 +18,22 @@ export class History {
     this.onChange();
   }
 
+  /** Fold `cmd` into the last undo step (it happened as a consequence of that step). */
+  amend(cmd: Command) {
+    const last = this.undoStack.pop();
+    if (!last) return this.push(cmd);
+    this.push({
+      undo: () => {
+        cmd.undo();
+        last.undo();
+      },
+      redo: () => {
+        last.redo();
+        cmd.redo();
+      },
+    });
+  }
+
   undo(): boolean {
     const c = this.undoStack.pop();
     if (!c) return false;

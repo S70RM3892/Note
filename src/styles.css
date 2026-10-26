@@ -1694,3 +1694,32 @@ select.input {
     grid-template-columns: 1fr;
   }
 }
+
+.subject {
+  display: grid;
+  grid-template-columns: 6em 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  min-height: 20px;
+}
+.subject-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subject-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+}
+.subject-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+.subject-time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
