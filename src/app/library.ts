@@ -2,7 +2,7 @@ import { uid } from '../core/id';
 import type { Folder, Notebook } from '../core/types';
 import { importPdfAsNotebook } from '../pdf/import';
 import { exportBackup, importBackup } from '../store/backup';
-import { COVER_COLORS } from '../store/repo';
+import { COVER_COLORS, dayKey } from '../store/repo';
 import { searchAll } from '../store/search';
 import { append, clear, formatDate, formatDuration, h } from '../ui/dom';
 import { confirmDialog, menu, modal, pickFiles, promptDialog, safeFileName, shareOrDownload, toast } from '../ui/dialogs';
@@ -22,6 +22,7 @@ import type { BookmarkEntry } from '../store/repo';
 import { addTodo, pruneTodos, removeTodo, toggleTodo, visibleTodos, type Todo } from '../study/todo';
 import { indexHandwriting } from '../ink/recognize';
 import { maybeAutoBackup } from './autoBackup';
+import { nightFrom, sleepHours } from '../hub/health';
 
 type FolderFilter = 'all' | 'fav' | string;
 
@@ -79,6 +80,7 @@ export class LibraryView implements View {
         h('button', { class: 'btn primary', onclick: () => this.create(), 'data-testid': 'new-notebook' }, icon('plus', 18), h('span', null, '新規ノート')),
         h('button', { class: 'btn', onclick: () => this.importPdf(), 'data-testid': 'import-pdf' }, icon('fileUp', 18), h('span', null, 'PDF取込')),
         h('button', { class: 'btn', onclick: () => this.scan(), 'data-testid': 'lib-scan' }, icon('scan', 18), h('span', null, 'スキャン')),
+        h('button', { class: 'btn', onclick: () => app.go('#/hub'), 'data-testid': 'open-hub' }, icon('cap', 18), h('span', null, '受験ハブ')),
         h('button', { class: 'icon-btn', 'aria-label': 'メニュー', onclick: (e: Event) => this.mainMenu(e.currentTarget as HTMLElement) }, icon('more')),
       ),
       h('div', { class: 'lib-scroll' }, this.strip, this.folderBar, this.results, this.grid),
@@ -147,6 +149,8 @@ export class LibraryView implements View {
     const backupAge = s.lastBackup ? Math.floor((now - s.lastBackup) / 86400000) : Infinity;
     const exams = upcomingExams(s.exams);
     const marks = await repo.listBookmarks().catch(() => [] as BookmarkEntry[]);
+    await this.app.hub.ready;
+    this.app.pushWidget(due);
     this.todoEl ??= this.todoCard();
     const focused = this.todoEl.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     clear(this.strip);
@@ -166,6 +170,7 @@ export class LibraryView implements View {
             ),
           )
         : null,
+      this.sleepCard(),
       this.todoEl,
       h(
         'div',
@@ -233,6 +238,48 @@ export class LibraryView implements View {
         : null,
     ]);
     focused?.focus();
+  }
+
+  /** 睡眠記録: in the morning, last night in one tap (bed and wake times start from the settings). */
+  private sleepCard(): HTMLElement | null {
+    const hub = this.app.hub;
+    const s = hub.get();
+    const now = new Date();
+    const today = dayKey(now.getTime());
+    if (!s.prefs.askSleep || s.sleepAsked === today || s.sleep.some((e) => e.day === today) || now.getHours() < 4 || now.getHours() >= 14) return null;
+    const set = this.app.settings.get();
+    const bed = h('input', { class: 'input', type: 'time', value: set.bedtime, 'data-testid': 'ask-bed' });
+    const wake = h('input', { class: 'input', type: 'time', value: set.wakeTime, 'data-testid': 'ask-wake' });
+    const skip = () => {
+      hub.update((st) => void (st.sleepAsked = today));
+      void this.renderStrip();
+    };
+    return h(
+      'div',
+      { class: 'card', 'data-testid': 'ask-sleep' },
+      h('h3', { class: 'card-head' }, '昨夜の睡眠', h('button', { class: 'link-btn', onclick: skip }, 'あとで')),
+      h('div', { class: 'row', style: 'gap:6px' }, bed, h('span', { class: 'muted' }, '→'), wake),
+      h(
+        'button',
+        {
+          class: 'btn small primary',
+          style: 'margin-top:8px',
+          'data-testid': 'ask-sleep-save',
+          onclick: () => {
+            const e = nightFrom(today, bed.value, wake.value);
+            if (!e) return toast('時刻がおかしい');
+            hub.update((st) => {
+              st.sleep = [...st.sleep.filter((x) => x.day !== today), e].slice(-400);
+              st.sleepAsked = today;
+            });
+            const hrs = sleepHours(e);
+            toast(hrs < 8 ? `${hrs.toFixed(1)}時間。高校生の目安は8〜10時間。今夜は早く寝ろ。` : `${hrs.toFixed(1)}時間。よし。`, 3000);
+            void this.renderStrip();
+          },
+        },
+        '記録',
+      ),
+    );
   }
 
   /** 今日やること: a short list for the day; unfinished items carry over to tomorrow. */
@@ -658,7 +705,9 @@ export class LibraryView implements View {
     const [file] = await pickFiles('.sumi,.zip,application/zip,application/octet-stream');
     if (!file) return;
     try {
+      await this.app.hub.flush();
       const r = await importBackup(this.app.repo, new Uint8Array(await file.arrayBuffer()), { restoreSettings: false });
+      await this.app.hub.reload();
       toast(`${r.notebooks}冊（${r.pages}ページ）を取り込んだ`);
       void this.load();
     } catch (e) {

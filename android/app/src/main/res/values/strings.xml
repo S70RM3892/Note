@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Sumi Note</string>
+    <string name="widget_name">入試カウントダウン</string>
+    <string name="widget_description">入試までの日数・今日の学習時間・今日の復習</string>
 </resources>

@@ -11,6 +11,11 @@ import { EditorView } from './editorView';
 import { LibraryView } from './library';
 import { startReview } from './review';
 import { SleepLock } from './sleepLock';
+import { HubStore } from '../hub/data';
+import { BreakWatch } from '../hub/health';
+import { HubView } from '../hub/view';
+import { upcomingExams } from '../study/countdown';
+import { dayKey } from '../store/repo';
 
 export interface View {
   el: HTMLElement;
@@ -29,6 +34,10 @@ export class App {
   private bannerKey = '';
   readonly timer: TimerWidget;
   readonly sleepLock = new SleepLock(this);
+  /** 受験ハブ: 模試・単語帳・睡眠… (everything outside the notebooks). */
+  readonly hub: HubStore;
+  /** 目の休憩: how long writing has gone on without a break. */
+  readonly breaks = new BreakWatch();
 
   constructor(
     public repo: Repo,
@@ -40,6 +49,7 @@ export class App {
     this.bannerHost = h('div');
     this.main = h('div', { style: 'flex:1;display:flex;flex-direction:column;min-height:0' });
     this.root.append(this.bannerHost, this.main);
+    this.hub = new HubStore(repo);
     this.timer = new TimerWidget(this);
     window.addEventListener('hashchange', () => void this.route());
     settings.subscribe(() => {
@@ -64,7 +74,29 @@ export class App {
 
   async flush() {
     this.stats.flush();
+    void this.hub.flush();
+    this.pushWidget();
     if (this.view instanceof EditorView) await this.view.save();
+  }
+
+  /** APK home screen widget: next exam, today's writing time, pages due for review. */
+  pushWidget(due?: number) {
+    if (!native?.setWidget) return;
+    if (due !== undefined) this.widgetDue = due;
+    const exam = upcomingExams(this.settings.get().exams)[0];
+    native.setWidget(JSON.stringify({ exam: exam?.name ?? '', examDate: exam?.date ?? '', todaySec: Math.round(this.stats.today()), day: dayKey(Date.now()), due: this.widgetDue }));
+  }
+
+  private widgetDue = 0;
+
+  /** Writing happened: count it, and nudge a break after an hour without one (目の休憩). */
+  private onWriting(pageId?: string) {
+    const now = Date.now();
+    this.stats.activity(now, this.editor?.doc?.nb.id, pageId);
+    const nudge = this.breaks.activity(now);
+    if (!nudge || !this.hub.get().prefs.eyeBreaks || this.timer.running) return;
+    if (nudge === 'micro') toast('30分続けて書いている。1〜2分、画面から目を離して遠くを見ろ。', 4000);
+    else toast('1時間続けて書いた。10〜15分休め（目を休め、体を動かす）。', 6000);
   }
 
   private editorHooks: ((ed: Editor) => void)[] = [];
@@ -80,7 +112,7 @@ export class App {
     if (!this.editor) {
       this.editor = new Editor(host, this.settings, this.assets);
       this.editor.toast = (m) => toast(m, 900);
-      this.editor.onActivity = (_ms, pageId) => this.stats.activity(Date.now(), this.editor?.doc?.nb.id, pageId);
+      this.editor.onActivity = (_ms, pageId) => this.onWriting(pageId);
       this.editorHooks.splice(0).forEach((fn) => fn(this.editor!));
     } else host.appendChild(this.editor.el);
     return this.editor;
@@ -96,6 +128,8 @@ export class App {
 
   onTimerRunning(running: boolean) {
     if (!running) this.sleepLock.check();
+    // おやすみモード while the clock runs (only if the user turned it on and Android allows it).
+    if (native?.setDnd && (this.hub.get().prefs.dnd || !running) && (native.dndAllowed?.() ?? false)) native.setDnd(running && this.hub.get().prefs.dnd);
     if (native) {
       native.setKeepScreenOn(running);
       if (this.settings.get().focusPin || !running) native.setFocusLock?.(running);
@@ -161,6 +195,8 @@ export class App {
         return;
       }
       next = v;
+    } else if (hash.startsWith('#/hub')) {
+      next = new HubView(this, hash.match(/^#\/hub\/([\w-]+)/)?.[1]);
     } else if (hash.startsWith('#/review')) {
       const v = await startReview(this);
       if (!v) {
@@ -213,6 +249,7 @@ export class App {
           'div',
           { class: 'banner', role: 'alert' },
           h('span', null, `🌙 ${s.bedtime} を過ぎた。ノートは自動保存済み。今日はここまでにして寝ろ。記憶は寝てる間に定着する。`),
+          h('button', { class: 'btn', 'data-testid': 'banner-reflect', onclick: () => this.go('#/hub/reflect') }, '振り返り'),
           h(
             'button',
             {

@@ -49,6 +49,17 @@ export interface SumiNativeBridge {
   setReminders?(json: string): void;
   /** Notifications are allowed (Android 13+ asks; the user can also turn them off). */
   notificationsAllowed?(): boolean;
+  /** 読み上げ (Android TextToSpeech): language tag like 'en-US', rate 1 = normal. */
+  speak?(text: string, lang: string, rate: number): void;
+  stopSpeaking?(): void;
+  /** Home screen widget: JSON {exam, examDate, todaySec, day, due}. */
+  setWidget?(json: string): void;
+  /** おやすみモード while studying: the app may change Do Not Disturb (the user grants it once). */
+  dndAllowed?(): boolean;
+  /** Open the system screen where that permission is granted. */
+  requestDnd?(): void;
+  /** Turn Do Not Disturb on (alarms still ring) or back to what it was. */
+  setDnd?(on: boolean): void;
 }
 
 export interface IncomingFile {

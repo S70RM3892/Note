@@ -31,6 +31,8 @@ import { RefPane } from './refPane';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
 import { openSettings } from './settingsView';
+import { MISTAKE_KINDS, type MistakeKind } from '../hub/mistakes';
+import { canSpeak, speak } from '../hub/speech';
 
 /** Draw a sample wave stroke of a pen preset onto `cv` (CSS size W×H). */
 function drawSample(cv: HTMLCanvasElement, W: number, H: number, p: PenPreset, kind: 'pen' | 'highlighter', gamma: number, transparent = false) {
@@ -640,6 +642,9 @@ export class EditorView implements View {
       b('brain', 'まちがいノートへ', () => void this.selectionToMistakes(), 'sel-mistake'),
     );
     if (nativeInk.available()) this.selMenu.append(b('text', 'テキストに変換', () => void this.convertToText(), 'sel-ocr'));
+    const page = sel.active && this.doc ? this.doc.page(sel.pageId!) : undefined;
+    const said = page?.items.filter((i): i is TextItem => i.type === 'text' && sel.ids.has(i.id)).map((i) => i.text).join('\n');
+    if (said && canSpeak()) this.selMenu.append(b('speaker', '読み上げ', () => speak(said, this.app.hub.get().prefs.ttsRate), 'sel-speak'));
   }
 
   /** 手書き → テキスト (APK): read the selected handwriting, let the user fix it, then replace or copy. */
@@ -785,12 +790,45 @@ export class EditorView implements View {
     const doc = this.doc!;
     try {
       toast('まちがいノートに送っています…', 4000);
-      await sendToMistakes(this.app, { nb: doc.nb, page, pageIndex: doc.indexOf(page.id) }, rect, strokes, items);
+      const nb = await sendToMistakes(this.app, { nb: doc.nb, page, pageIndex: doc.indexOf(page.id) }, rect, strokes, items);
       toast('まちがいノートに追加した。明日から復習に出る', 2600);
+      void this.askMistakeKind(doc.nb, nb);
     } catch (e) {
       console.error(e);
       toast('送れなかった: ' + (e as Error).message, 3000);
     }
+  }
+
+  /** ミス分析: why it went wrong (one tap), with the subject from the notebook's folder. */
+  private async askMistakeKind(src: Notebook, mistakes: Notebook) {
+    const folders = await this.app.repo.listFolders();
+    let subject = folders.find((f) => f.id === src.folder)?.name ?? src.title;
+    const page = mistakes.pages[mistakes.pages.length - 1];
+    const record = (kind: MistakeKind) => {
+      this.app.hub.update((s) => void s.mistakes.push({ id: uid(), at: Date.now(), kind, subject: subject.trim() || src.title, nb: mistakes.id, page }));
+      m.close();
+      toast('記録した（受験ハブ → ミス分析）', 1600);
+    };
+    const m = modal(
+      'なぜまちがえた？',
+      h(
+        'div',
+        null,
+        h('div', { class: 'chips', 'data-testid': 'mistake-kind' }, MISTAKE_KINDS.map((k) => h('button', { class: 'chip', onclick: () => record(k.id) }, k.label))),
+        h('label', { class: 'field', style: 'margin-top:10px' }, h('span', { class: 'field-label' }, '科目'), h('input', { class: 'input', value: subject, oninput: (e: Event) => (subject = (e.target as HTMLInputElement).value) })),
+      ),
+      { actions: [h('button', { class: 'btn', onclick: () => m.close() }, 'あとで')] },
+    );
+  }
+
+  /** 質問リスト: this page, with what to ask. */
+  private async addQuestion(page: Page) {
+    const doc = this.doc!;
+    const i = doc.indexOf(page.id);
+    const t = await promptDialog('先生に聞くこと', '', '例: (2) の場合分けの理由');
+    if (t === null) return;
+    this.app.hub.update((s) => void s.questions.push({ id: uid(), text: t || `${doc.nb.title} p.${i + 1}`, at: Date.now(), nb: doc.nb.id, page: page.id, where: `${doc.nb.title} p.${i + 1}` }));
+    toast('質問リストに入れた（受験ハブ）', 1600);
   }
 
   // ---------- actions ----------
@@ -1212,6 +1250,7 @@ export class EditorView implements View {
           this.stampText(`${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}(${'日月火水木金土'[d.getDay()]})`, 'right');
         },
       },
+      { label: '質問リストに入れる', icon: 'question', onClick: () => void this.addQuestion(page) },
       { label: '全テープを隠す', icon: 'eyeOff', onClick: () => this.editor.setAllTapes(true) },
       { label: '全テープをめくる', icon: 'eye', onClick: () => this.editor.setAllTapes(false) },
       null,

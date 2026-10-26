@@ -273,6 +273,8 @@ test('まちがいノート: lasso a problem on a PDF (region) or ink (selection
   await page.screenshot({ path: 'test-results/region-menu.png' });
   await page.getByTestId('region-mistake').click();
   await expect(page.getByText('まちがいノートに追加した')).toBeVisible({ timeout: 15000 });
+  // ミス分析 asks why; this one is answered later.
+  await page.locator('.modal').getByRole('button', { name: 'あとで' }).click();
 
   // Then some ink, selected with the lasso → also to the まちがいノート (kept as vectors).
   await page.getByTestId('tool-pen').click();
@@ -287,6 +289,8 @@ test('まちがいノート: lasso a problem on a PDF (region) or ink (selection
   ]);
   await page.getByTestId('sel-mistake').click();
   await expect(page.getByText('まちがいノートに追加した')).toBeVisible({ timeout: 15000 });
+  await page.getByTestId('mistake-kind').getByRole('button', { name: '方針が立たなかった' }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).sumi.hub.get().mistakes.map((m: any) => m.kind))).toEqual(['plan']);
 
   const cards = await page.evaluate(async () => {
     const app = (window as any).sumi;

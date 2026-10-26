@@ -132,6 +132,27 @@ class NativeBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun notificationsAllowed(): Boolean = Reminders.allowed(activity)
 
+    /** 読み上げ: [lang] like "en-US", [rate] 1 = normal. */
+    @JavascriptInterface
+    fun speak(text: String, lang: String, rate: Float) = activity.speech.speak(text, lang, rate)
+
+    @JavascriptInterface
+    fun stopSpeaking() = activity.speech.stop()
+
+    /** ホーム画面のウィジェット: JSON {exam, examDate, todaySec, day, due}. */
+    @JavascriptInterface
+    fun setWidget(json: String) = CountdownWidget.save(activity, json)
+
+    /** タイマー中のおやすみモード. */
+    @JavascriptInterface
+    fun dndAllowed(): Boolean = activity.dnd.allowed()
+
+    @JavascriptInterface
+    fun requestDnd() = activity.runOnUiThread { activity.dnd.request() }
+
+    @JavascriptInterface
+    fun setDnd(on: Boolean) = activity.dnd.set(on)
+
     /** The side button's action in the page's settings ("eraser" | "lasso" | "none"). */
     @JavascriptInterface
     fun setPenButtonAction(action: String) {

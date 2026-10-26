@@ -237,8 +237,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         io.shutdown()
+        speech.shutdown()
         super.onDestroy()
     }
+
+    /** 読み上げ (started on first use). */
+    val speech by lazy { Speech.android(this) }
+
+    /** タイマー中のおやすみモード. */
+    val dnd by lazy { Dnd(this) }
 
     /** Full screen; the bars come back temporarily with an edge swipe (so a palm at the edge doesn't leave the app). */
     private fun hideSystemBars() {

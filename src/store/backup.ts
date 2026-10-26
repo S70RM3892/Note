@@ -1,6 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import type { Asset, Folder, Notebook, Page, ReviewRecord, Stroke } from '../core/types';
 import type { Repo } from './repo';
+import { mergeHub } from '../hub/data';
 
 /**
  * Backup file (.sumi): a zip with
@@ -22,6 +23,8 @@ interface Manifest {
   assets: { id: string; kind: Asset['kind']; mime: string; name?: string; outline?: Asset['outline'] }[];
   settings?: unknown;
   stats?: unknown;
+  /** 受験ハブ (模試・単語帳・睡眠…); audio files are not included. */
+  hub?: unknown;
 }
 
 function f32ToB64(a: Float32Array): string {
@@ -96,6 +99,7 @@ export async function exportBackup(repo: Repo, notebookIds?: string[]): Promise<
     assets,
     settings: notebookIds ? undefined : await repo.kvGet('settings'),
     stats: notebookIds ? undefined : await repo.kvGet('stats'),
+    hub: notebookIds ? undefined : await repo.kvGet('hub'),
   };
   files['manifest.json'] = strToU8(JSON.stringify(manifest));
   return zipSync(files, { level: 6 });
@@ -136,6 +140,8 @@ export async function importBackup(repo: Repo, data: Uint8Array, opts: { restore
   if (manifest.reviews.length) await repo.db.write({ put: manifest.reviews.map((r) => ['reviews', r] as ['reviews', ReviewRecord]) });
   if (opts.restoreSettings && manifest.settings) await repo.kvSet('settings', manifest.settings);
   if (opts.restoreSettings && manifest.stats) await repo.kvSet('stats', manifest.stats);
+  // 受験ハブ: add what this device lacks, keep what it has.
+  if (manifest.hub) await repo.kvSet('hub', mergeHub(await repo.kvGet('hub'), manifest.hub));
   await repo.forgetBookmarks();
   return { notebooks: manifest.notebooks.length, pages: pageCount };
 }

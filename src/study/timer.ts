@@ -171,6 +171,12 @@ export class TimerWidget {
     this.dock?.replaceChildren();
   }
 
+  /** Set the clock for a paper (from 入試日程・時間割) and show it, not started. */
+  preset(label: string, minutes: number) {
+    this.set(label, minutes);
+    this.show();
+  }
+
   private set(label: string, minutes: number) {
     this.logIfUsed();
     const pomo = label === 'ポモドーロ' ? { phase: 'focus' as const, round: 1 } : undefined;

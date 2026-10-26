@@ -52,6 +52,13 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
         return t;
       },
       notificationsAllowed: () => !!w.__notifyOk,
+      // 読み上げ, widget, おやすみモード
+      speak: (text: string, lang: string, rate: number) => (w.__spoken ??= []).push([text, lang, rate]),
+      stopSpeaking: () => (w.__stops = (w.__stops ?? 0) + 1),
+      setWidget: (json: string) => (w.__widget ??= []).push(JSON.parse(json)),
+      dndAllowed: () => !!w.__dndOk,
+      requestDnd: () => (w.__dndOk = true),
+      setDnd: (on: boolean) => (w.__dnd ??= []).push(on),
       // Wet ink: the test decides whether the shell "drew" the stroke (default: no).
       setWetInk: (json: string) => (w.__wet ??= []).push(JSON.parse(json)),
       // Ids by claim order; the page says where its pen went down.
@@ -476,4 +483,35 @@ test('診断ログ: after a crash the app says so once and shows the record; scr
   await page.getByText('設定', { exact: true }).click();
   await page.getByTestId('open-diag').click();
   await expect(page.getByTestId('diag-text')).toHaveValue(/surface gone[\s\S]*boom/);
+});
+
+test('受験ハブ in the APK: おやすみモード follows the exam timer, the widget gets the numbers, English is read aloud', async ({ page }) => {
+  await fakeBridge(page);
+  await page.goto('/');
+  // The library sends the widget its numbers.
+  await expect.poll(() => page.evaluate(() => (window as any).__widget?.at(-1))).toMatchObject({ exam: '共通テスト', examDate: '2027-01-16', due: 0 });
+  await page.getByTestId('open-hub').click();
+  await page.getByTestId('hub-tile-device').click();
+  await page.getByTestId('dnd-toggle').check(); // not allowed yet: opens the system screen
+  expect(await page.evaluate(() => (window as any).__dndOk)).toBe(true);
+  // Into a notebook without reloading (the bridge's state lives in the page).
+  await page.getByTestId('hub-back').click();
+  await page.getByTestId('hub-back').click();
+  await page.getByTestId('new-notebook').click();
+  await page.getByTestId('create-notebook').click();
+  await page.waitForFunction(() => !!(window as any).sumi?.view?.doc);
+  await page.getByTestId('timer-btn').click();
+  await page.getByTestId('timer-toggle').click();
+  await page.getByTestId('timer-time').click();
+  await page.getByTestId('timer-toggle').click();
+  expect(await page.evaluate(() => (window as any).__dnd)).toEqual([true, false]);
+  // 読み上げ: a pasted passage, sentence by sentence.
+  await page.goto('/#/hub/reader');
+  await page.getByTestId('reader-text').fill('I study every day. Sleep comes first!');
+  await page.getByTestId('reader-sentence').nth(1).click();
+  await page.getByTestId('reader-all').click();
+  expect(await page.evaluate(() => (window as any).__spoken)).toEqual([
+    ['Sleep comes first!', 'en-US', 1],
+    ['I study every day. Sleep comes first!', 'en-US', 1],
+  ]);
 });

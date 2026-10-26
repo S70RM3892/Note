@@ -210,3 +210,18 @@ describe('しおり一覧', () => {
     expect((await dst.listBookmarks()).map((b) => b.page).sort()).toEqual([pages[1].id, (await dst.getNotebook(copy.id))!.pages[1]].sort());
   });
 });
+
+describe('受験ハブ in backups', () => {
+  it('a backup carries the hub data; restoring adds it to what the device already has', async () => {
+    const src = await fresh();
+    await src.createNotebook({ title: 'x' });
+    await src.kvSet('hub', { mocks: [{ id: 'm1', name: '第1回', date: '2026-06-01', kind: 'other', subjects: [] }], sleep: [{ day: '2026-10-25', bed: 1, wake: 2 }] });
+    const zip = await exportBackup(src);
+    const dst = await fresh();
+    await dst.kvSet('hub', { mocks: [{ id: 'm2', name: '手元', date: '2026-10-01', kind: 'other', subjects: [] }] });
+    await importBackup(dst, zip);
+    const hub = await dst.kvGet<{ mocks: { id: string }[]; sleep: unknown[] }>('hub');
+    expect(hub!.mocks.map((m) => m.id)).toEqual(['m2', 'm1']);
+    expect(hub!.sleep).toHaveLength(1);
+  });
+});
