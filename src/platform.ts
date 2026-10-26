@@ -15,12 +15,24 @@ export interface SumiNativeBridge {
   finishFile(id: string, action: string): void;
   openUrl(url: string): void;
   setKeepScreenOn(on: boolean): void;
+  /** Files opened/shared into the app since the last call: JSON [{url, name, mime}]. */
+  takeIncoming(): string;
+}
+
+export interface IncomingFile {
+  url: string;
+  name: string;
+  mime: string;
 }
 
 interface NativeCallbacks {
   onScan?: (json: string) => void;
   onFileDone?: (json: string) => void;
   onPenButton?: (down: boolean) => void;
+  /** Android back gesture; return true when handled (otherwise the app goes to the background). */
+  onBack?: () => boolean;
+  /** New files are waiting in takeIncoming(). */
+  onIncoming?: () => void;
 }
 
 declare global {
@@ -88,6 +100,27 @@ export async function nativeFile(blob: Blob, name: string, action: 'save' | 'sha
   });
 }
 
-export function onNativePenButton(fn: (down: boolean) => void) {
-  callbacks().onPenButton = fn;
+export function setNativeCallbacks(cb: Pick<NativeCallbacks, 'onPenButton' | 'onBack' | 'onIncoming'>) {
+  Object.assign(callbacks(), cb);
+}
+
+/** Fetch the files Android handed us (served by the app's own asset loader) as File objects. */
+export async function nativeIncoming(): Promise<File[]> {
+  if (!native) return [];
+  let list: IncomingFile[] = [];
+  try {
+    list = JSON.parse(native.takeIncoming() || '[]') as IncomingFile[];
+  } catch {
+    return [];
+  }
+  const out: File[] = [];
+  for (const f of list) {
+    try {
+      const blob = await (await fetch(f.url)).blob();
+      out.push(new File([blob], f.name, { type: f.mime || blob.type }));
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  return out;
 }

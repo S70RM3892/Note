@@ -1,5 +1,6 @@
 import { h } from './dom';
 import { icon, type IconName } from './icons';
+import { native, nativeFile } from '../platform';
 
 let toastTimer = 0;
 
@@ -176,6 +177,10 @@ export function pickFiles(accept: string, opts: { multiple?: boolean; capture?: 
 }
 
 export function downloadBlob(blob: Blob, name: string) {
+  if (native) {
+    void nativeFile(blob, name, 'save').then((ok) => ok && toast('保存した'));
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = h('a', { href: url, download: name, style: 'display:none' });
   document.body.appendChild(a);
@@ -186,8 +191,38 @@ export function downloadBlob(blob: Blob, name: string) {
   }, 4000);
 }
 
+/** In the APK: ask whether to hand the file to another app or save it to storage. */
+function nativeShareOrSave(blob: Blob, name: string): Promise<void> {
+  return new Promise((resolve) => {
+    let picked: 'share' | 'save' | null = null;
+    const pick = (a: 'share' | 'save') => () => {
+      picked = a;
+      m.close();
+    };
+    const m = modal(
+      name,
+      h(
+        'div',
+        { class: 'share-choice' },
+        h('button', { class: 'btn primary', 'data-testid': 'native-share', onclick: pick('share') }, icon('share', 18), '他のアプリに送る'),
+        h('button', { class: 'btn', 'data-testid': 'native-save', onclick: pick('save') }, icon('download', 18), 'ファイルとして保存'),
+      ),
+      {
+        onClose: () => {
+          if (!picked) return resolve();
+          void nativeFile(blob, name, picked).then((ok) => {
+            if (ok && picked === 'save') toast('保存した');
+            resolve();
+          });
+        },
+      },
+    );
+  });
+}
+
 /** Share a file through the Android share sheet when possible, else download it. */
 export async function shareOrDownload(blob: Blob, name: string) {
+  if (native) return nativeShareOrSave(blob, name);
   const file = new File([blob], name, { type: blob.type });
   const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
   if (nav.canShare?.({ files: [file] })) {

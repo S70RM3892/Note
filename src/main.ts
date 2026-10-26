@@ -1,8 +1,10 @@
 import './styles.css';
 import { App } from './app/app';
+import { installNativeGlue } from './app/nativeGlue';
 import { importIncomingShares } from './app/share';
 import { AssetCache } from './editor/assets';
 import { clipboardAssets } from './editor/selection';
+import { isNativeApp } from './platform';
 import { Repo } from './store/repo';
 import { SettingsStore } from './store/settings';
 import { StatsTracker } from './study/stats';
@@ -29,7 +31,9 @@ async function boot() {
   void navigator.storage?.persist?.().catch(() => {});
   if (location.hash.startsWith('#/share')) await importIncomingShares(app);
   else await app.route();
-  registerServiceWorker();
+  // The APK ships its files inside the package: no service worker, updates come with the APK.
+  if (isNativeApp()) installNativeGlue(app);
+  else registerServiceWorker();
   // Weekly, when idle: drop images/PDFs no page references any more.
   const lastGc = (await repo.kvGet<number>('lastGc')) ?? 0;
   if (Date.now() - lastGc > 7 * 86400000) {

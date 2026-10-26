@@ -72,6 +72,11 @@ export class App {
     return this.editor;
   }
 
+  /** S Pen side button reported by the Android shell (also covers hovering, which pointer events don't). */
+  setPenButton(down: boolean) {
+    if (this.editor) this.editor.sideButtonHeld = down;
+  }
+
   go(hash: string) {
     if (location.hash === hash) void this.route();
     else location.hash = hash;
