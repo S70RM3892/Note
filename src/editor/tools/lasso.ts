@@ -20,6 +20,7 @@ export class LassoTool implements Tool {
       return;
     }
     sel.clear();
+    this.ed.setRegion(null);
     this.hit = this.ed.pageAt(s.wx, s.wy, 40);
     this.path = [{ x: s.wx, y: s.wy }];
   }
@@ -102,7 +103,15 @@ export class LassoTool implements Tool {
       const c = itemCenter(it);
       if (pointInPolygon(c.x, c.y, poly)) ids.push(it.id);
     }
-    if (ids.length) this.ed.selection.set(page.id, ids);
+    if (ids.length) {
+      this.ed.selection.set(page.id, ids);
+      return;
+    }
+    // Nothing selectable inside: keep the area itself (copy a PDF figure, send a problem to the まちがいノート…).
+    const xs = poly.map((p) => p.x), ys = poly.map((p) => p.y);
+    const x0 = Math.max(0, Math.min(...xs)), y0 = Math.max(0, Math.min(...ys));
+    const x1 = Math.min(page.w, Math.max(...xs)), y1 = Math.min(page.h, Math.max(...ys));
+    if (x1 - x0 >= 24 && y1 - y0 >= 16) this.ed.setRegion(page.id, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
   }
 
   cancel() {
@@ -115,6 +124,7 @@ export class LassoTool implements Tool {
 
   deactivate() {
     this.ed.selection.clear();
+    this.ed.setRegion(null);
   }
 
   drawUI(ctx: CanvasRenderingContext2D) {
@@ -137,5 +147,19 @@ export class LassoTool implements Tool {
       ctx.restore();
     }
     this.ed.selection.drawUI(ctx);
+    const rg = this.ed.region;
+    const i = rg ? this.ed.doc?.indexOf(rg.pageId) ?? -1 : -1;
+    if (rg && i >= 0) {
+      const vp = this.ed.vp, o = vp.rects[i];
+      const x = vp.toScreenX(o.x + rg.rect.x), y = vp.toScreenY(o.y + rg.rect.y);
+      ctx.save();
+      ctx.fillStyle = 'rgba(232,89,12,0.07)';
+      ctx.fillRect(x, y, rg.rect.w * vp.zoom, rg.rect.h * vp.zoom);
+      ctx.setLineDash([7, 5]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#e8590c';
+      ctx.strokeRect(x, y, rg.rect.w * vp.zoom, rg.rect.h * vp.zoom);
+      ctx.restore();
+    }
   }
 }

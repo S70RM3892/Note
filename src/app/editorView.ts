@@ -1,6 +1,6 @@
 import { uid } from '../core/id';
 import { grade, newReview, nextInterval, formatInterval, type Grade } from '../core/srs';
-import type { Notebook, Page, PageBackground, ReviewRecord } from '../core/types';
+import type { Item, Notebook, Page, PageBackground, Pt, Rect, ReviewRecord, TapeItem } from '../core/types';
 import { EditorDoc } from '../editor/doc';
 import type { Editor } from '../editor/editor';
 import { hasClipboard } from '../editor/selection';
@@ -16,6 +16,7 @@ import { h } from '../ui/dom';
 import { menu, modal, pickFiles, popover, promptDialog, safeFileName, shareOrDownload, toast } from '../ui/dialogs';
 import { icon, type IconName } from '../ui/icons';
 import type { App, View } from './app';
+import { copyRegionAsImage, padRect, sendToMistakes } from './capture';
 import { exportNotebookPdfDialog } from './exportDialog';
 import { imageItem } from './importers';
 import { chipGroup, paperFields, swatchGroup } from './newNotebook';
@@ -472,16 +473,25 @@ export class EditorView implements View {
 
   // ---------- selection menu ----------
 
+  private selMenuFor: 'sel' | 'region' | null = null;
+
   private positionSelMenu() {
     const sel = this.editor.selection;
-    const show = this.editor.tool === 'lasso' && sel.active && !sel.dragging;
+    const region = this.editor.tool === 'lasso' && !sel.active ? this.regionCorners() : null;
+    const show = this.editor.tool === 'lasso' && ((sel.active && !sel.dragging) || !!region);
     if (!show) {
       this.selMenu.hidden = true;
+      this.selMenuFor = null;
       return;
     }
-    if (this.selMenu.hidden || !this.selMenu.childElementCount) this.buildSelMenu();
+    const kind = region ? 'region' : 'sel';
+    if (this.selMenu.hidden || this.selMenuFor !== kind) {
+      if (kind === 'region') this.buildRegionMenu();
+      else this.buildSelMenu();
+      this.selMenuFor = kind;
+    }
     this.selMenu.hidden = false;
-    const { cs } = sel.screenGeometry();
+    const cs = region ?? sel.screenGeometry().cs;
     const xs = cs.map((p) => p.x), ys = cs.map((p) => p.y);
     const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
     let y = Math.min(...ys) - 44;
@@ -511,7 +521,85 @@ export class EditorView implements View {
       }),
       b('tape', 'テープで隠す', () => sel.toTape(), 'sel-tape'),
       b('lock', '固定', () => (sel.lock(), toast('固定した。投げ縄・消しゴムで動かない')), 'sel-lock'),
+      b('brain', 'まちがいノートへ', () => void this.selectionToMistakes(), 'sel-mistake'),
     );
+  }
+
+  /** Screen corners of the lassoed empty area, if any. */
+  private regionCorners(): Pt[] | null {
+    const rg = this.editor.region;
+    const i = rg && this.doc ? this.doc.indexOf(rg.pageId) : -1;
+    if (!rg || i < 0) return null;
+    const vp = this.editor.vp, o = vp.rects[i];
+    const x0 = vp.toScreenX(o.x + rg.rect.x), y0 = vp.toScreenY(o.y + rg.rect.y);
+    const x1 = x0 + rg.rect.w * vp.zoom, y1 = y0 + rg.rect.h * vp.zoom;
+    return [
+      { x: x0, y: y0 },
+      { x: x1, y: y0 },
+      { x: x1, y: y1 },
+      { x: x0, y: y1 },
+    ];
+  }
+
+  private buildRegionMenu() {
+    const b = (ic: IconName, label: string, fn: () => void, testid?: string) => h('button', { onclick: fn, 'data-testid': testid }, icon(ic, 18), label);
+    const target = () => {
+      const rg = this.editor.region;
+      const page = rg && this.doc?.page(rg.pageId);
+      return rg && page ? { page, rect: rg.rect } : null;
+    };
+    this.selMenu.replaceChildren(
+      b('brain', 'まちがいノートへ', () => void this.regionToMistakes(), 'region-mistake'),
+      b('copy', '画像でコピー', async () => {
+        const t = target();
+        if (!t) return;
+        this.editor.setRegion(null);
+        if (await copyRegionAsImage(this.app, t.page, t.rect)) {
+          toast('コピーした。貼り付けたいページで投げ縄 →「貼り付け」');
+          this.sync();
+        } else toast('何も写っていない');
+      }, 'region-copy'),
+      b('tape', 'テープで隠す', () => {
+        const t = target();
+        if (!t) return;
+        this.editor.setRegion(null);
+        const tape: TapeItem = { id: uid(), type: 'tape', ...t.rect, rot: 0, color: this.app.settings.get().tapeColor };
+        this.doc!.addItems(t.page.id, [tape]);
+      }, 'region-tape'),
+    );
+  }
+
+  private async regionToMistakes() {
+    const rg = this.editor.region;
+    const doc = this.doc;
+    const page = rg && doc?.page(rg.pageId);
+    if (!rg || !doc || !page) return;
+    this.editor.setRegion(null);
+    await this.toMistakes(page, rg.rect, [], []);
+  }
+
+  private async selectionToMistakes() {
+    const sel = this.editor.selection;
+    const doc = this.doc;
+    const page = sel.active && doc ? doc.page(sel.pageId!) : undefined;
+    if (!page) return;
+    const strokes = page.strokes.filter((s) => sel.ids.has(s.id));
+    const items = page.items.filter((i) => sel.ids.has(i.id));
+    const rect = padRect(sel.bounds, page);
+    sel.clear();
+    await this.toMistakes(page, rect, strokes, items);
+  }
+
+  private async toMistakes(page: Page, rect: Rect, strokes: Stroke[], items: Item[]) {
+    const doc = this.doc!;
+    try {
+      toast('まちがいノートに送っています…', 4000);
+      await sendToMistakes(this.app, { nb: doc.nb, page, pageIndex: doc.indexOf(page.id) }, rect, strokes, items);
+      toast('まちがいノートに追加した。明日から復習に出る', 2600);
+    } catch (e) {
+      console.error(e);
+      toast('送れなかった: ' + (e as Error).message, 3000);
+    }
   }
 
   // ---------- actions ----------

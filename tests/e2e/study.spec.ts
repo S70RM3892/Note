@@ -253,3 +253,89 @@ test('入試カウントダウン and the 原稿用紙 / 英語4線 templates', 
     await page.screenshot({ path: `test-results/tpl-${tpl}.png` });
   }
 });
+
+test('まちがいノート: lasso a problem on a PDF (region) or ink (selection), copy a PDF figure, tape a region', async ({ page }) => {
+  test.setTimeout(90_000);
+  await importPdf(page, await makePdf());
+  await page.waitForTimeout(1200);
+  await page.getByTestId('tool-lasso').click();
+  // Lasso around the PDF's title: nothing selectable there → region menu.
+  const [x0, y0] = await pageToScreen(page, 0, 60, 70);
+  const [x1, y1] = await pageToScreen(page, 0, 560, 140);
+  await pen(page, [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+    [x0, y0 + 2],
+  ]);
+  await expect(page.getByTestId('region-mistake')).toBeVisible();
+  await page.screenshot({ path: 'test-results/region-menu.png' });
+  await page.getByTestId('region-mistake').click();
+  await expect(page.getByText('まちがいノートに追加した')).toBeVisible({ timeout: 15000 });
+
+  // Then some ink, selected with the lasso → also to the まちがいノート (kept as vectors).
+  await page.getByTestId('tool-pen').click();
+  await pen(page, wave(300, 400, 300));
+  await page.getByTestId('tool-lasso').click();
+  await pen(page, [
+    [260, 340],
+    [660, 340],
+    [660, 470],
+    [260, 470],
+    [260, 342],
+  ]);
+  await page.getByTestId('sel-mistake').click();
+  await expect(page.getByText('まちがいノートに追加した')).toBeVisible({ timeout: 15000 });
+
+  const cards = await page.evaluate(async () => {
+    const app = (window as any).sumi;
+    const nbs = await app.repo.listNotebooks();
+    const nb = nbs.find((n: any) => n.title === 'まちがいノート');
+    const pages = await app.repo.loadPages(nb);
+    const reviews = await app.repo.listReviews();
+    return pages.map((p: any) => ({
+      images: p.items.filter((i: any) => i.type === 'image').map((i: any) => ({ locked: !!i.locked, w: Math.round(i.w) })),
+      texts: p.items.filter((i: any) => i.type === 'text').map((i: any) => i.text),
+      strokes: p.strokes.length,
+      review: reviews.some((r: any) => r.id === p.id),
+    }));
+  });
+  expect(cards).toHaveLength(2);
+  expect(cards[0].images).toEqual([{ locked: true, w: expect.any(Number) }]);
+  expect(cards[0].images[0].w).toBeGreaterThan(500);
+  expect(cards[0].texts[0]).toMatch(/^kakomon +p\.1 /);
+  expect(cards[0].texts).toContain('▼ 解き直し');
+  expect(cards[0].strokes).toBe(0);
+  expect(cards[1].strokes).toBe(1);
+  expect(cards[1].images).toHaveLength(1); // the PDF under the ink
+  expect(cards.every((c) => c.review)).toBe(true);
+
+  // 画像でコピー → paste on page 2.
+  await pen(page, [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+    [x0, y0 + 2],
+  ]);
+  await page.getByTestId('region-copy').click();
+  await expect(page.getByText('コピーした')).toBeVisible({ timeout: 15000 });
+  // テープで隠す on the same area.
+  await pen(page, [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+    [x0, y0 + 2],
+  ]);
+  await page.getByTestId('region-tape').click();
+  expect((await docInfo(page)).pages[0].items.filter((i) => i.type === 'tape')).toHaveLength(1);
+
+  // Open the まちがいノート and look at the first card.
+  await page.getByTestId('back').click();
+  await page.getByText('まちがいノート', { exact: true }).first().click();
+  await page.waitForFunction(() => (window as any).sumi?.view?.doc?.nb?.title === 'まちがいノート');
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: 'test-results/mistake-card.png' });
+});

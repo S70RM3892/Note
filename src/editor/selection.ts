@@ -17,7 +17,7 @@ import type { Editor } from './editor';
 
 export type Handle = 'move' | 'nw' | 'ne' | 'se' | 'sw' | 'rotate';
 
-interface Clip {
+export interface Clip {
   strokes: Stroke[];
   items: Item[];
   bounds: Rect;
@@ -30,10 +30,20 @@ export function hasClipboard() {
   return !!clipboard;
 }
 
+export function setClipboard(c: Clip) {
+  clipboard = c;
+}
+
 /** Assets the clipboard still points at (kept by asset garbage collection). */
 export function clipboardAssets(): Set<string> {
   const s = new Set<string>();
-  for (const it of clipboard?.items ?? []) if (it.type === 'image') s.add(it.asset);
+  for (const it of clipboard?.items ?? []) {
+    if (it.type === 'image') s.add(it.asset);
+    else if (it.type === 'scan') {
+      s.add(it.vector);
+      if (it.photo) s.add(it.photo);
+    }
+  }
   return s;
 }
 

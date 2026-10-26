@@ -1,6 +1,6 @@
 import { itemContains } from '../core/geometry';
 import { isDarkColor } from '../core/ink';
-import type { Page, Stroke, TapeItem } from '../core/types';
+import type { Page, Rect, Stroke, TapeItem } from '../core/types';
 import type { SettingsStore } from '../store/settings';
 import type { AssetCache } from './assets';
 import type { EditorDoc } from './doc';
@@ -205,6 +205,7 @@ export class Editor {
     this.cancelInput();
     this.textEditor.commit();
     this.selection.clear();
+    this.region = null;
     this.doc.nb.lastPage = this.currentPage;
     this.doc.markNotebookDirty();
     this.renderer.clear();
@@ -684,6 +685,17 @@ export class Editor {
 
   /** The lasso tapped a locked object (the view offers to unlock it). */
   onLockedTap: (page: Page, id: string, sx: number, sy: number) => void = () => {};
+
+  /** A lassoed area with nothing selectable in it (e.g. a problem on a PDF), page coordinates. */
+  region: { pageId: string; rect: Rect } | null = null;
+
+  setRegion(pageId: string | null, rect?: Rect) {
+    const next = pageId && rect ? { pageId, rect } : null;
+    if (!next && !this.region) return;
+    this.region = next;
+    this.requestUI();
+    this.emitSoon();
+  }
 
   /** Lock or unlock objects on a page. */
   setLocked(pageId: string, ids: Iterable<string>, locked: boolean, record = true) {
