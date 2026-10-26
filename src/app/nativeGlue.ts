@@ -109,7 +109,19 @@ function installReminders(app: App, bridge: SumiNativeBridge) {
     timer = window.setTimeout(() => void sync().catch((e) => console.warn('reminders', e)), 400);
   };
   soon();
-  app.settings.subscribe(soon);
+  // Only the settings the reminders are made of (the pen colour changes far more often).
+  const relevant = () => {
+    const x = app.settings.get();
+    return JSON.stringify([x.notifyBedtime, x.notifyReview, x.reviewTime, x.bedtime, x.exams]);
+  };
+  let seen = relevant();
+  app.settings.subscribe(() => {
+    const r = relevant();
+    if (r === seen) return;
+    seen = r;
+    soon();
+  });
+  // Back from a review session or the editor: due counts may have changed.
   window.addEventListener('hashchange', soon);
 }
 
