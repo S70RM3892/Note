@@ -21,6 +21,7 @@ export class PenTool implements Tool {
   private snapped: RecognizedShape | null = null;
   private last: Sample | null = null;
   private started = 0;
+  private predTimer = 0;
 
   constructor(private ed: Editor, private kind: 'pen' | 'highlighter') {}
 
@@ -113,6 +114,9 @@ export class PenTool implements Tool {
     if (n >= 3 && predicted.length) {
       const tip = { sx: vp.toScreenX(this.pts[n - 3] + this.hit.ox), sy: vp.toScreenY(this.pts[n - 2] + this.hit.oy), r: this.radius(this.pts[n - 1]) * vp.zoom };
       this.ed.live.predict(tip, predicted.slice(0, 3).map((q) => ({ sx: q.sx, sy: q.sy, r: tip.r })));
+      // If the pen stops, no further events arrive: don't leave an overshoot on screen.
+      clearTimeout(this.predTimer);
+      this.predTimer = window.setTimeout(() => this.ed.live.predict(null, []), 50);
     } else this.ed.live.predict(null, []);
   }
 
@@ -153,6 +157,7 @@ export class PenTool implements Tool {
 
   up(s: Sample) {
     clearTimeout(this.holdTimer);
+    clearTimeout(this.predTimer);
     if (!this.hit) return;
     const h = this.hit;
     let stroke: Stroke;
@@ -177,6 +182,7 @@ export class PenTool implements Tool {
 
   abort() {
     clearTimeout(this.holdTimer);
+    clearTimeout(this.predTimer);
     this.hit = null;
     this.ed.live.predict(null, []);
     this.ed.live.clear();

@@ -250,10 +250,20 @@ test.describe('selection & items', () => {
       [400, 300],
     ]);
     await page.keyboard.type('f(x)=x^2');
+    // Tapping inside the box moves the caret; it must not start another text box.
+    const box = (await page.locator('.ed-textedit').boundingBox())!;
+    await pen(page, [
+      [box.x + 4, box.y + box.height / 2],
+      [box.x + 4, box.y + box.height / 2],
+    ]);
+    await expect(page.locator('.ed-textedit')).toBeVisible();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' ');
     await page.getByTestId('tool-pen').click();
     const items = (await docInfo(page)).pages[0].items;
     expect(items).toHaveLength(1);
     expect(items[0].text).toBe('f(x)=x^2');
+    expect(items).toHaveLength(1);
   });
 });
 
