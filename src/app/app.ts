@@ -24,6 +24,7 @@ export class App {
   private editor: Editor | null = null;
   private nightEl: HTMLElement | null = null;
   private snoozeUntil = 0;
+  private bannerKey = '';
   readonly timer: TimerWidget;
 
   constructor(
@@ -132,14 +133,17 @@ export class App {
       this.nightEl.remove();
       this.nightEl = null;
     }
+    const show = night && Date.now() > this.snoozeUntil;
+    const key = show ? s.bedtime : '';
+    if (key === this.bannerKey) return; // no DOM churn every minute
+    this.bannerKey = key;
     this.bannerHost.replaceChildren();
-    if (night && Date.now() > this.snoozeUntil) {
+    if (show) {
       this.bannerHost.appendChild(
         h(
           'div',
           { class: 'banner', role: 'alert' },
           h('span', null, `🌙 ${s.bedtime} を過ぎた。ノートは自動保存済み。今日はここまでにして寝ろ。記憶は寝てる間に定着する。`),
-          h('span', { class: 'spacer' }),
           h(
             'button',
             {

@@ -18,6 +18,7 @@ import { exportNotebookPdfDialog } from './exportDialog';
 import { imageItem } from './importers';
 import { chipGroup, paperFields, swatchGroup } from './newNotebook';
 import { openPageOverview } from './pageOverview';
+import { RefPane } from './refPane';
 import { openSettings } from './settingsView';
 
 const TOOLS: { id: ToolName; icon: IconName; label: string; key: string }[] = [
@@ -58,13 +59,17 @@ export class EditorView implements View {
   private zoomTimer = 0;
   private reviewIds = new Set<string>();
   private review: { queue: ReviewRecord[]; index: number; bar: HTMLElement } | null = null;
+  private body: HTMLElement;
+  private ref: RefPane | null = null;
+  private refBtn!: HTMLElement;
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
 
   private constructor(private app: App) {
     this.toolbar = h('div', { class: 'toolbar', role: 'toolbar' });
     this.palette = h('div', { class: 'tb-palette' });
     this.stageWrap = h('div', { class: 'stage-wrap' });
-    this.el = h('div', { class: 'editor-view' }, this.toolbar, this.stageWrap);
+    this.body = h('div', { class: 'editor-body' }, this.stageWrap);
+    this.el = h('div', { class: 'editor-view' }, this.toolbar, this.body);
     this.editor = app.getEditor(this.stageWrap);
     this.selMenu = h('div', { class: 'sel-menu', hidden: true });
     this.zoomBadge = h('div', { class: 'zoom-badge' });
@@ -113,7 +118,69 @@ export class EditorView implements View {
     doc.markNotebookDirty();
     this.titleEl.textContent = nb.title;
     this.sync();
+    if (!this.review) void this.restoreRef(nb.id);
     return true;
+  }
+
+  // ---------- reference pane ----------
+
+  private refKey(nbId: string) {
+    return 'sumi.ref.' + nbId;
+  }
+
+  private async restoreRef(nbId: string) {
+    let refId: string | null = null;
+    try {
+      refId = localStorage.getItem(this.refKey(nbId));
+    } catch {
+      /* ignore */
+    }
+    if (!refId) return;
+    const pane = this.ensureRef();
+    if (!(await pane.open(refId))) this.closeRef();
+  }
+
+  private ensureRef(): RefPane {
+    if (!this.ref) this.ref = new RefPane(this.app, this.body, () => this.closeRef());
+    this.refBtn.classList.add('active');
+    return this.ref;
+  }
+
+  private closeRef() {
+    this.ref?.destroy();
+    this.ref = null;
+    this.refBtn.classList.remove('active');
+    if (this.doc) {
+      try {
+        localStorage.removeItem(this.refKey(this.doc.nb.id));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private async openRefPicker() {
+    const doc = this.doc;
+    if (!doc) return;
+    await doc.flush();
+    const existed = !!this.ref;
+    const pane = this.ensureRef();
+    const ok = await pane.pick();
+    if (ok && pane.nbId) {
+      try {
+        localStorage.setItem(this.refKey(doc.nb.id), pane.nbId);
+      } catch {
+        /* ignore */
+      }
+    } else if (!existed) this.closeRef();
+  }
+
+  private refMenu(anchor: HTMLElement) {
+    if (!this.ref) return void this.openRefPicker();
+    menu(anchor, [
+      { label: '別のノートを参照', icon: 'folder', onClick: () => void this.openRefPicker() },
+      { label: '参照ビューを閉じる', icon: 'close', onClick: () => this.closeRef() },
+    ]);
   }
 
   /** Persist everything now (called on background/close). */
@@ -141,6 +208,9 @@ export class EditorView implements View {
   }
 
   async destroy() {
+    this.ref?.destroy();
+    this.ref = null;
+    this.app.timer.setDock(null);
     document.removeEventListener('keydown', this.onKey);
     this.unsubs.forEach((u) => u());
     await this.closeDoc();
@@ -168,6 +238,9 @@ export class EditorView implements View {
     }
     this.pasteBtn = this.btn('paste', '貼り付け', () => this.paste(), 'paste');
     tb.append(this.pasteBtn, h('div', { class: 'tb-sep tb-palette-sep' }), this.palette, h('span', { class: 'spacer', style: 'min-width:8px' }));
+    const timerDock = h('span', { style: 'display:contents' });
+    this.app.timer.setDock(timerDock);
+    tb.append(timerDock);
     this.pagePill = h('button', { class: 'tb-pill', onclick: () => this.overview(), 'data-testid': 'page-pill' });
     this.zoomPill = h('button', { class: 'tb-pill', onclick: () => this.editor.fitWidth(), title: '幅に合わせる' });
     this.sheetBtn = this.btn('eyeOff', '赤シート', () => this.toggleSheet(), 'red-sheet-btn');
@@ -176,6 +249,7 @@ export class EditorView implements View {
       this.zoomPill,
       this.sheetBtn,
       this.btn('timer', '過去問タイマー', () => this.app.timer.show(), 'timer-btn'),
+      (this.refBtn = this.btn('columns', '参照ビュー（左に別のノートを表示）', (e) => this.refMenu(e.currentTarget as HTMLElement), 'ref-btn')),
       this.btn('grid', 'ページ一覧', () => this.overview(), 'overview'),
       this.btn('plus', 'ページを追加', () => this.addPage(), 'add-page'),
       this.btn('more', 'メニュー', (e) => this.moreMenu(e.currentTarget as HTMLElement), 'more'),

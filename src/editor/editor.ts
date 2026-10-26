@@ -52,6 +52,8 @@ export class Editor {
   tapeMode: 'normal' | 'hide' = 'normal';
   /** Set by the Android shell / keyboard when the S Pen side button is held. */
   sideButtonHeld = false;
+  /** Reference viewer: the pen scrolls instead of writing and nothing is modified. */
+  readOnly = false;
 
   private ui: HTMLCanvasElement;
   private uiCtx: CanvasRenderingContext2D;
@@ -349,6 +351,8 @@ export class Editor {
     const dpr = window.devicePixelRatio || 1;
     const first = this.vp.width <= 1;
     const centerW = this.vp.toWorld(this.vp.width / 2, 0);
+    // Stay "fit to width" across rotation / split-screen changes.
+    const wasFit = !first && !!this.doc && Math.abs(this.vp.zoom - this.vp.fitZoom()) < 0.01;
     this.vp.width = Math.max(1, r.width);
     this.vp.height = Math.max(1, r.height);
     this.vp.dpr = dpr;
@@ -358,8 +362,13 @@ export class Editor {
     this.ui.height = Math.round(r.height * dpr);
     if (this.doc) {
       if (first) this.vp.zoom = this.vp.fitZoom();
-      else this.vp.camX = centerW.x - this.vp.width / 2 / this.vp.zoom; // keep horizontal centre on rotation
+      else {
+        if (wasFit) this.vp.zoom = this.vp.fitZoom();
+        this.vp.camX = centerW.x - this.vp.width / 2 / this.vp.zoom; // keep horizontal centre on rotation
+        this.vp.camY = centerW.y;
+      }
       this.vp.clampCamera();
+      this.emitSoon();
     }
     this.renderer.request();
     this.requestUI();
@@ -458,7 +467,7 @@ export class Editor {
           const w = this.vp.toWorld(x, y);
           this.selection.beginDrag(this.selection.hitHandle(x, y)!, w.x, w.y);
           this.mode = 'select';
-        } else if (this.fingerDraws() && this.toolPtr === null) {
+        } else if (this.fingerDraws() && this.toolPtr === null && !this.readOnly) {
           this.mode = 'draw';
           this.startTool(e, this.tools[this.tool], rect);
         } else {
@@ -487,13 +496,21 @@ export class Editor {
       return;
     }
 
-    if (e.pointerType === 'mouse' && e.button !== 0) {
+    if ((e.pointerType === 'mouse' && e.button !== 0) || this.readOnly) {
+      this.stopMomentum();
       this.mousePan = { x: e.clientX, y: e.clientY, id: e.pointerId };
       this.renderer.gesture = true;
+      try {
+        this.el.setPointerCapture(e.pointerId);
+      } catch {
+        /* synthetic pointers */
+      }
       return;
     }
     if (this.toolPtr !== null) return;
-    // The pen wins over any finger gesture in progress.
+    // The pen wins over any finger gesture in progress (and stops a fling).
+    this.stopMomentum();
+    this.renderer.gesture = false;
     if (this.touches.size) {
       if (this.mode === 'draw' && this.activeTool) {
         const t = this.activeTool;
@@ -566,7 +583,7 @@ export class Editor {
     }
 
     // Hover (pen in range, nothing pressed) – cursor preview.
-    if (e.pointerType === 'pen' && this.toolPtr === null && e.buttons === 0) {
+    if (e.pointerType === 'pen' && this.toolPtr === null && e.buttons === 0 && !this.readOnly) {
       const tool = this.toolFor(e);
       if (this.hoverTool && this.hoverTool !== tool) this.hoverTool.hover?.(null);
       this.hoverTool = tool;
@@ -625,6 +642,7 @@ export class Editor {
   }
 
   private onTap(fingers: number, t: TouchPt) {
+    if (this.readOnly) return;
     if (fingers === 1) {
       const w = this.vp.toWorld(t.x, t.y);
       if (this.toggleTapeAt(w.x, w.y)) return;

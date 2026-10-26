@@ -158,14 +158,18 @@ select {
   border-radius: 999px;
   font-size: 14px;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: 0.2s;
+  transition: opacity 0.2s, transform 0.2s, visibility 0s linear 0.2s;
   z-index: 1000;
 }
 
+/* Hidden overlays must not paint: anything above the ink canvas disables low-latency mode. */
 #toast.show {
   opacity: 1;
+  visibility: visible;
   transform: translate(-50%, 0);
+  transition: opacity 0.2s, transform 0.2s;
 }
 
 .modal-backdrop {
@@ -727,8 +731,79 @@ select.input {
   font-variant-numeric: tabular-nums;
 }
 
+.editor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+
+.ref-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 46%;
+  min-width: 0;
+  background: var(--desk);
+}
+
+.ref-head {
+  height: 42px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.ref-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.ref-stage {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+.ref-stage .ed-stage {
+  cursor: grab;
+}
+
+.ref-divider {
+  flex: none;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  position: relative;
+}
+
+.ref-divider::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 40px;
+  margin-top: -20px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0.5;
+}
+
 .stage-wrap {
   flex: 1;
+  min-width: 0;
   position: relative;
   min-height: 0;
   overflow: hidden;
@@ -818,12 +893,15 @@ select.input {
   border-radius: 999px;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.2s;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0s linear 0.2s;
   z-index: 15;
 }
 
 .zoom-badge.show {
   opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s;
 }
 
 .tool-pop {
@@ -930,6 +1008,21 @@ select.input {
   margin: 0;
 }
 
+.timer-dock {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 4px;
+}
+
+.timer-dock.warn {
+  color: #e8590c;
+}
+
+.timer-dock.over {
+  color: var(--danger);
+}
+
 .timer.warn .timer-time {
   color: #e8590c;
 }
@@ -952,14 +1045,20 @@ select.input {
 }
 
 .banner {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 320;
+  max-width: min(460px, calc(100vw - 32px));
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
   background: #1b1e3a;
   color: #e9ebff;
   font-size: 14px;
-  flex: none;
+  box-shadow: var(--shadow);
 }
 
 .banner .btn {

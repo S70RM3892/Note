@@ -239,3 +239,55 @@ test('horizontal layout turns pages with a swipe', async ({ page }) => {
   });
   expect(camX).toBeLessThan(1);
 });
+
+test('参照ビュー: read-only notebook beside the one being written, restored on reopen', async ({ page }) => {
+  await newNotebook(page, '問題');
+  await pen(page, wave(300, 300, 300));
+  await flush(page);
+  await page.getByTestId('back').click();
+  await page.getByTestId('new-notebook').click();
+  await page.getByTestId('nb-title').fill('解答');
+  await page.getByTestId('create-notebook').click();
+  await page.waitForFunction(() => (window as any).sumi?.view?.doc?.nb?.title === '解答');
+  // Record every notebook the app writes from here on.
+  await page.evaluate(() => {
+    const repo = (window as any).sumi.repo;
+    const orig = repo.savePages.bind(repo);
+    (window as any).__written = [];
+    repo.savePages = (pages: any[], nb?: any) => {
+      (window as any).__written.push(nb?.title ?? pages[0]?.nb);
+      return orig(pages, nb);
+    };
+  });
+  await page.getByTestId('ref-btn').click();
+  await page.getByTestId('ref-choice').filter({ hasText: '問題' }).click();
+  await expect(page.getByTestId('ref-pane')).toBeVisible();
+  const refBox = (await page.getByTestId('ref-pane').boundingBox())!;
+  // The pen scrolls the reference instead of writing on it.
+  const cam0 = await page.evaluate(() => (window as any).sumi.view.ref.editor.vp.camY);
+  await pen(page, [
+    [refBox.x + refBox.width / 2, refBox.y + 500],
+    [refBox.x + refBox.width / 2, refBox.y + 400],
+    [refBox.x + refBox.width / 2, refBox.y + 300],
+  ]);
+  const cam1 = await page.evaluate(() => (window as any).sumi.view.ref.editor.vp.camY);
+  expect(cam1).toBeGreaterThan(cam0);
+  expect(await page.evaluate(() => (window as any).sumi.view.ref.doc.pages[0].strokes.length)).toBe(1);
+  // Writing on the right still works.
+  const mainBox = (await page.locator('.stage-wrap').boundingBox())!;
+  await pen(page, wave(mainBox.x + 80, mainBox.y + 200, 200));
+  expect((await docInfo(page)).pages[0].strokes.length).toBe(1);
+  await page.screenshot({ path: 'test-results/split.png' });
+  // Switching the reference closes the old one: it must not be written either.
+  await page.getByTestId('ref-btn').click();
+  await page.getByText('別のノートを参照').click();
+  await page.getByTestId('ref-choice').filter({ hasText: '問題' }).click();
+  await flush(page);
+  await page.waitForTimeout(800);
+  const written: string[] = await page.evaluate(() => (window as any).__written);
+  expect(written.length).toBeGreaterThan(0);
+  expect(written.every((t) => t === '解答')).toBe(true);
+  await page.reload();
+  await page.waitForFunction(() => !!(window as any).sumi?.view?.ref?.doc);
+  await expect(page.getByTestId('ref-pane')).toBeVisible();
+});

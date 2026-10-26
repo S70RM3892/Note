@@ -79,6 +79,8 @@ export class TimerWidget {
   private el: HTMLElement | null = null;
   private tick = 0;
   private timeEl!: HTMLElement;
+  /** Toolbar slot: the minimised timer lives there so it never covers the ink canvas. */
+  private dock: HTMLElement | null = null;
 
   constructor(private host: TimerHost) {
     if (this.s.visible) this.mount();
@@ -100,6 +102,11 @@ export class TimerWidget {
     return !!this.s.startedAt;
   }
 
+  setDock(el: HTMLElement | null) {
+    this.dock = el;
+    if (this.s.visible) this.mount();
+  }
+
   show() {
     this.s.visible = true;
     this.s.min = false;
@@ -117,6 +124,7 @@ export class TimerWidget {
     clearInterval(this.tick);
     this.el?.remove();
     this.el = null;
+    this.dock?.replaceChildren();
   }
 
   private set(label: string, minutes: number) {
@@ -135,7 +143,11 @@ export class TimerWidget {
     if (this.s.startedAt) {
       this.s.elapsed = this.elapsed();
       this.s.startedAt = null;
-    } else this.s.startedAt = Date.now();
+    } else {
+      this.s.startedAt = Date.now();
+      // Get out of the way of the writing area once it runs.
+      if (this.dock) this.s.min = true;
+    }
     this.save();
     this.mount();
   }
@@ -178,6 +190,27 @@ export class TimerWidget {
     this.unmount();
     if (!this.s.visible) return;
     const s = this.s;
+    if (s.min && this.dock) {
+      this.timeEl = h('span', { 'data-testid': 'timer-time' });
+      this.el = h(
+        'button',
+        {
+          class: 'tb-pill timer-dock',
+          title: 'タイマーを開く',
+          onclick: () => {
+            this.s.min = false;
+            this.save();
+            this.mount();
+          },
+        },
+        icon(s.startedAt ? 'timer' : 'pause', 15),
+        this.timeEl,
+      );
+      this.dock.appendChild(this.el);
+      this.update();
+      this.tick = window.setInterval(() => this.update(), 250);
+      return;
+    }
     this.timeEl = h('div', { class: 'timer-time', 'data-testid': 'timer-time' });
     const head = h(
       'div',

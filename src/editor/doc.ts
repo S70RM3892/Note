@@ -44,7 +44,8 @@ export class EditorDoc {
   onStructure: () => void = () => {};
   onSaved: () => void = () => {};
 
-  constructor(public repo: Repo, public nb: Notebook, pages: Page[]) {
+  /** A read-only doc (reference pane) never writes: it may hold a stale snapshot. */
+  constructor(public repo: Repo, public nb: Notebook, pages: Page[], readonly readOnly = false) {
     this.pages = pages;
     pages.forEach((p) => this.byId.set(p.id, p));
   }
@@ -116,12 +117,17 @@ export class EditorDoc {
   // ---------- page structure ----------
 
   private applyOrder(pages: Page[]) {
+    if (this.readOnly) return;
+    const known = new Set(this.nb.pages);
     this.pages = pages;
     this.byId.clear();
     pages.forEach((p) => this.byId.set(p.id, p));
     this.nb.pages = pages.map((p) => p.id);
     this.nbDirty = true;
-    pages.forEach((p) => this.dirtyPages.add(p.id));
+    // Only pages that were not part of the notebook need writing; the order lives in the notebook.
+    pages.forEach((p) => {
+      if (!known.has(p.id)) this.dirtyPages.add(p.id);
+    });
     this.scheduleSave();
     this.onStructure();
   }
@@ -176,11 +182,13 @@ export class EditorDoc {
   // ---------- persistence ----------
 
   markDirty(pageId: string) {
+    if (this.readOnly) return;
     this.dirtyPages.add(pageId);
     this.scheduleSave();
   }
 
   markNotebookDirty() {
+    if (this.readOnly) return;
     this.nbDirty = true;
     this.scheduleSave();
   }
@@ -197,12 +205,14 @@ export class EditorDoc {
   /** Write dirty pages now. Safe to call repeatedly. */
   flush(): Promise<void> {
     clearTimeout(this.saveTimer);
+    if (this.readOnly) return Promise.resolve();
     this.saving = this.saving.catch(() => {}).then(async () => {
       if (!this.hasUnsaved) return;
       const pages = [...this.dirtyPages].map((id) => this.byId.get(id)).filter((p): p is Page => !!p);
       this.dirtyPages.clear();
       this.nbDirty = false;
-      this.nb.updated = Date.now();
+      // "Updated" means the content changed, not that the notebook was merely opened.
+      if (pages.length) this.nb.updated = Date.now();
       try {
         await this.repo.savePages(pages, this.nb);
         this.onSaved();

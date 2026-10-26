@@ -109,6 +109,21 @@ export class LibraryView implements View {
         h('h3', null, '過去問タイマー'),
         h('div', { class: 'muted', style: 'font-size:13px;margin-bottom:8px' }, '京大工学部の個別試験時間でセット'),
         h('button', { class: 'btn small', onclick: () => this.app.timer.show() }, icon('timer', 16), 'タイマーを出す'),
+        stats.data.exams.length
+          ? h(
+              'div',
+              { style: 'margin-top:10px;font-size:12px', 'data-testid': 'exam-log' },
+              stats.data.exams.slice(0, 3).map((x) =>
+                h(
+                  'div',
+                  { class: 'row', style: 'gap:6px;padding:2px 0' },
+                  h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, x.label),
+                  h('b', { style: x.planned && x.used > x.planned ? 'color:var(--danger)' : '' }, x.planned ? `${Math.round(x.used / 60)}/${Math.round(x.planned / 60)}分` : `${Math.round(x.used / 60)}分`),
+                  h('span', { class: 'muted' }, formatDate(x.at)),
+                ),
+              ),
+            )
+          : null,
       ),
       backupAge >= s.backupReminderDays
         ? h(

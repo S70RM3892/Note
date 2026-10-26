@@ -30,6 +30,13 @@ export function hasClipboard() {
   return !!clipboard;
 }
 
+/** Assets the clipboard still points at (kept by asset garbage collection). */
+export function clipboardAssets(): Set<string> {
+  const s = new Set<string>();
+  for (const it of clipboard?.items ?? []) if (it.type === 'image') s.add(it.asset);
+  return s;
+}
+
 const HANDLE_R = 14; // CSS px touch radius
 
 /** Lasso selection on one page: live transform, actions and the floating menu. */

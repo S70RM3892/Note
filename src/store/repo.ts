@@ -174,10 +174,10 @@ export class Repo {
   }
 
   /** Delete assets no page references any more. */
-  async collectAssets() {
+  async collectAssets(keep: Set<string> = new Set()) {
     const assetIds = await this.db.keys('assets');
     if (!assetIds.length) return;
-    const used = new Set<string>();
+    const used = new Set<string>(keep);
     const pages = await this.db.getAll<Page>('pages');
     for (const p of pages) {
       if (p.pdf) used.add(p.pdf.asset);
