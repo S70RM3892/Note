@@ -341,6 +341,7 @@ export class Editor {
       c.clearRect(0, 0, this.ui.width, this.ui.height);
       c.setTransform(this.vp.dpr, 0, 0, this.vp.dpr, 0, 0);
       const t = this.activeTool ?? this.tools[this.tool];
+      this.drawLockBadges(c);
       t.drawUI?.(c);
       if (t !== this.tools.lasso) this.selection.drawUI(c);
     });
@@ -679,6 +680,52 @@ export class Editor {
   }
 
   toast?: (msg: string) => void;
+
+  /** The lasso tapped a locked object (the view offers to unlock it). */
+  onLockedTap: (page: Page, id: string, sx: number, sy: number) => void = () => {};
+
+  /** Lock or unlock objects on a page. */
+  setLocked(pageId: string, ids: Iterable<string>, locked: boolean, record = true) {
+    const doc = this.doc;
+    const page = doc?.page(pageId);
+    if (!doc || !page) return;
+    const set = new Set(ids);
+    const before = doc.content(pageId);
+    const after = {
+      strokes: before.strokes.map((s) => (set.has(s.id) && !!s.locked !== locked ? { ...s, locked: locked || undefined } : s)),
+      items: before.items.map((i) => (set.has(i.id) && !!i.locked !== locked ? { ...i, locked: locked || undefined } : i)),
+    };
+    if (record) doc.commit([{ pageId, before, after }]);
+    else doc.setContent(pageId, after, null);
+  }
+
+  /** Small padlocks on locked photos/text/tapes while the lasso is active. */
+  private drawLockBadges(c: CanvasRenderingContext2D) {
+    const doc = this.doc;
+    if (!doc || this.tool !== 'lasso') return;
+    for (const i of this.vp.visiblePages()) {
+      const page = doc.pages[i];
+      const r = this.vp.rects[i];
+      for (const it of page.items) {
+        if (!it.locked) continue;
+        const x = this.vp.toScreenX(r.x + it.x + it.w), y = this.vp.toScreenY(r.y + it.y);
+        c.save();
+        c.translate(x - 16, y + 4);
+        c.fillStyle = 'rgba(30,32,40,0.72)';
+        c.beginPath();
+        c.roundRect(-4, -2, 20, 20, 6);
+        c.fill();
+        c.strokeStyle = '#fff';
+        c.fillStyle = '#fff';
+        c.lineWidth = 1.6;
+        c.beginPath();
+        c.arc(6, 6, 3.6, Math.PI, 0);
+        c.stroke();
+        c.fillRect(1.5, 6, 9, 7);
+        c.restore();
+      }
+    }
+  }
 
   private panMove(t: TouchPt) {
     const now = performance.now();

@@ -394,3 +394,56 @@ test('insert an image, it is selected for placing, survives reload and PDF expor
   await page.getByTestId('do-export').click();
   expect((await (await dl).path()).length).toBeGreaterThan(0);
 });
+
+test('固定: locked objects ignore the lasso and the eraser; tap offers unlock; placed images auto-lock', async ({ page }) => {
+  await newNotebook(page);
+  await pen(page, wave(300, 300, 200));
+  await page.getByTestId('tool-lasso').click();
+  const lassoAround = [
+    [250, 230],
+    [550, 230],
+    [550, 370],
+    [250, 370],
+    [250, 232],
+  ] as [number, number][];
+  await pen(page, lassoAround);
+  await page.getByTestId('sel-lock').click();
+  expect(await page.evaluate(() => (window as any).sumi.view.doc.pages[0].strokes[0].locked)).toBe(true);
+  // Lasso no longer selects it.
+  await pen(page, lassoAround);
+  await expect(page.locator('.sel-menu')).toBeHidden();
+  // Eraser leaves it alone.
+  await page.getByTestId('tool-eraser').click();
+  await pen(page, line(300, 250, 500, 350, 30));
+  expect((await docInfo(page)).pages[0].strokes.length).toBe(1);
+  // Lasso tap on it offers to unlock.
+  await page.getByTestId('tool-lasso').click();
+  const s = await page.evaluate(() => {
+    const st = (window as any).sumi.view.doc.pages[0].strokes[0];
+    return [st.pts[0], st.pts[1]];
+  });
+  const [tx, ty] = await pageToScreen(page, 0, s[0], s[1]);
+  await pen(page, [
+    [tx, ty],
+    [tx, ty],
+  ]);
+  await page.getByText('固定を解除して選択').click();
+  await expect(page.locator('.sel-menu')).toBeVisible();
+  expect(await page.evaluate(() => !!(window as any).sumi.view.doc.pages[0].strokes[0].locked)).toBe(false);
+
+  // A placed image is selected for positioning and locks itself when deselected.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC', 'base64');
+  await page.getByTestId('more').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByText('画像を挿入').click();
+  await (await chooser).setFiles({ name: 'p.png', mimeType: 'image/png', buffer: png });
+  await expect(page.locator('.sel-menu')).toBeVisible();
+  await pen(page, [
+    [1100, 700],
+    [1100, 700],
+  ]); // tap empty paper
+  expect(await page.evaluate(() => (window as any).sumi.view.doc.pages[0].items[0].locked)).toBe(true);
+  // Undo history is untouched by the auto-lock: one undo removes the image.
+  await page.getByTestId('undo').click();
+  expect((await docInfo(page)).pages[0].items.length).toBe(0);
+});

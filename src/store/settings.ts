@@ -22,6 +22,8 @@ export interface Settings {
   twoFingerUndo: boolean;
   tapeColor: string;
   tapeWidth: number;
+  /** Lock a placed photo/scan when its selection is dismissed. */
+  autoLockPlaced: boolean;
   // Display
   theme: 'system' | 'light' | 'dark';
   layout: 'vertical' | 'horizontal';
@@ -54,6 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   twoFingerUndo: true,
   tapeColor: '#ff9800',
   tapeWidth: 26,
+  autoLockPlaced: true,
   theme: 'system',
   layout: 'vertical',
   bedtimeEnabled: true,

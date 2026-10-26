@@ -24,7 +24,7 @@ export class TextTool implements Tool {
     const hit = this.ed.pageAt(s.wx, s.wy);
     if (!hit) return;
     const x = s.wx - hit.ox, y = s.wy - hit.oy;
-    const existing = [...hit.page.items].reverse().find((i): i is TextItem => i.type === 'text' && itemContains(i, x, y, 4));
+    const existing = [...hit.page.items].reverse().find((i): i is TextItem => i.type === 'text' && !i.locked && itemContains(i, x, y, 4));
     if (existing) this.ed.textEditor.edit(hit.page, existing);
     else this.ed.textEditor.create(hit.page, x, y);
   }

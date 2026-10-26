@@ -50,6 +50,10 @@ export class EraserTool implements Tool {
       let changed = false;
       const strokes: Stroke[] = [];
       for (const s of page.strokes) {
+        if (s.locked) {
+          strokes.push(s);
+          continue;
+        }
         if (partial) {
           const res = eraseStroke(s, ax, ay, bx, by, r);
           if (res === null) strokes.push(s);
@@ -61,7 +65,7 @@ export class EraserTool implements Tool {
         else strokes.push(s);
       }
       const items = page.items.filter((it) => {
-        if (it.type !== 'tape') return true;
+        if (it.type !== 'tape' || it.locked) return true;
         const hit =
           itemContains(it, ax, ay, r) ||
           itemContains(it, bx, by, r) ||

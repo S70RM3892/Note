@@ -14,6 +14,8 @@ export interface Stroke {
   /** Recognized shape: rendered as a constant-width polyline. */
   shape?: boolean;
   closed?: boolean;
+  /** 固定: ignored by the lasso and the eraser until unlocked. */
+  locked?: boolean;
 }
 
 export interface ItemBase {
@@ -25,6 +27,8 @@ export interface ItemBase {
   h: number;
   /** Rotation in radians around the box center. */
   rot: number;
+  /** 固定: ignored by the lasso and the eraser until unlocked. */
+  locked?: boolean;
 }
 
 export interface TapeItem extends ItemBase {
@@ -45,7 +49,27 @@ export interface ImageItem extends ItemBase {
   asset: string;
 }
 
-export type Item = TapeItem | TextItem | ImageItem;
+/** A photographed document traced into vector paths (crisp at any zoom). */
+export interface ScanItem extends ItemBase {
+  type: 'scan';
+  /** Asset (kind 'vector') holding the VectorDoc JSON. */
+  vector: string;
+  /** Perspective-corrected photo the vectors were traced from. */
+  photo?: string;
+  /** Show the photo instead of the vectors. */
+  showPhoto?: boolean;
+}
+
+export type Item = TapeItem | TextItem | ImageItem | ScanItem;
+
+/** Traced vector artwork. Coordinates are scan pixels (0..w, 0..h). */
+export interface VectorDoc {
+  w: number;
+  h: number;
+  /** Tile size the paths are grouped by (for culling while zoomed in). */
+  tile: number;
+  layers: { color: string; tiles: { x: number; y: number; d: string }[] }[];
+}
 
 export type TemplateId = 'blank' | 'ruled' | 'grid' | 'dots' | 'cornell' | 'split';
 
@@ -122,7 +146,7 @@ export interface OutlineEntry {
 
 export interface Asset {
   id: string;
-  kind: 'pdf' | 'image';
+  kind: 'pdf' | 'image' | 'vector';
   mime: string;
   name?: string;
   blob: Blob;

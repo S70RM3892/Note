@@ -46,6 +46,8 @@ export class SelectionManager {
   bounds: Rect = { x: 0, y: 0, w: 0, h: 0 }; // page coordinates (before m)
   m: Mat = IDENTITY;
   private drag: { handle: Handle; start: Pt; m0: Mat; pivot: Pt; startAngle: number; startDist: number } | null = null;
+  /** Lock these objects when the selection is dismissed (a freshly placed photo/scan). */
+  private autoLock = false;
   onChange: () => void = () => {};
 
   constructor(private ed: Editor) {}
@@ -68,10 +70,11 @@ export class SelectionManager {
     return r ?? { x: 0, y: 0, w: 0, h: 0 };
   }
 
-  set(pageId: string, ids: Iterable<string>) {
+  set(pageId: string, ids: Iterable<string>, opts: { autoLock?: boolean } = {}) {
     this.clear();
     this.pageId = pageId;
     this.ids = new Set(ids);
+    this.autoLock = !!opts.autoLock;
     if (!this.ids.size) {
       this.pageId = null;
       return;
@@ -85,10 +88,17 @@ export class SelectionManager {
   clear() {
     if (this.pageId) {
       const pid = this.pageId;
+      const ids = this.ids;
       const b = this.worldlessBounds();
+      const lockNow = this.autoLock && this.ed.settings.get().autoLockPlaced;
+      this.autoLock = false;
       this.pageId = null;
       this.ids = new Set();
       this.ed.renderer.invalidate(pid, b);
+      if (lockNow && this.ed.doc?.page(pid)) {
+        this.ed.setLocked(pid, ids, true, false);
+        this.ed.toast?.('固定した（投げ縄でタップすると解除できる）');
+      }
       this.onChange();
     }
     this.drag = null;
@@ -245,8 +255,19 @@ export class SelectionManager {
 
   // ---------- actions ----------
 
+  /** 固定: lock the selection so the lasso and eraser leave it alone. */
+  lock() {
+    if (!this.active) return;
+    const pid = this.pageId!;
+    const ids = [...this.ids];
+    this.autoLock = false;
+    this.clear();
+    this.ed.setLocked(pid, ids, true);
+  }
+
   delete() {
     if (!this.active) return;
+    this.autoLock = false;
     const doc = this.ed.doc!;
     const pid = this.pageId!;
     const before = doc.content(pid);
@@ -269,6 +290,7 @@ export class SelectionManager {
 
   duplicate() {
     if (!this.active) return;
+    this.autoLock = false;
     this.copy();
     const pid = this.pageId!;
     this.pasteInto(pid, { x: this.bounds.x + 24, y: this.bounds.y + 24 });

@@ -79,6 +79,20 @@ export class EditorView implements View {
     this.redSheet = new RedSheet(this.stageWrap);
     this.buildToolbar();
     this.unsubs.push(this.editor.subscribe(() => this.sync()));
+    this.editor.onLockedTap = (page, id, sx, sy) => {
+      const r = this.editor.el.getBoundingClientRect();
+      menu({ x: r.left + sx, y: r.top + sy }, [
+        {
+          label: '固定を解除して選択',
+          icon: 'unlock',
+          onClick: () => {
+            this.editor.setLocked(page.id, [id], false);
+            this.editor.selection.set(page.id, [id]);
+          },
+        },
+        { label: 'このページの固定をすべて解除', icon: 'unlock', onClick: () => this.unlockPage(page) },
+      ]);
+    };
     this.unsubs.push(app.settings.subscribe(() => this.renderPalette()));
     document.addEventListener('keydown', this.onKey);
     app.applyTheme();
@@ -493,6 +507,7 @@ export class EditorView implements View {
         const close = popover(this.selMenu, wrap);
       }),
       b('tape', 'テープで隠す', () => sel.toTape(), 'sel-tape'),
+      b('lock', '固定', () => (sel.lock(), toast('固定した。投げ縄・消しゴムで動かない')), 'sel-lock'),
     );
   }
 
@@ -586,6 +601,13 @@ export class EditorView implements View {
     });
   }
 
+  private unlockPage(page: Page) {
+    const ids = [...page.strokes.filter((s) => s.locked).map((s) => s.id), ...page.items.filter((i) => i.locked).map((i) => i.id)];
+    if (!ids.length) return toast('固定されたものはない');
+    this.editor.setLocked(page.id, ids, false);
+    toast(`${ids.length}個の固定を解除した`);
+  }
+
   private async toggleReview(page: Page) {
     const repo = this.app.repo;
     if (this.reviewIds.has(page.id)) {
@@ -612,7 +634,8 @@ export class EditorView implements View {
     doc.addItems(page.id, [item]);
     this.editor.setTool('lasso');
     this.renderPalette();
-    this.editor.selection.set(page.id, [item.id]);
+    // Position it now; it locks itself once deselected so a stray touch can't move it.
+    this.editor.selection.set(page.id, [item.id], { autoLock: true });
   }
 
   private async insertPdf() {
@@ -701,6 +724,7 @@ export class EditorView implements View {
       { label: '用紙テンプレートを変更', icon: 'grid', onClick: () => this.changeTemplate() },
       { label: layout === 'vertical' ? '横めくりにする' : '縦スクロールにする', icon: layout === 'vertical' ? 'columns' : 'rows', onClick: () => this.toggleLayout() },
       { label: this.reviewIds.has(page.id) ? 'このページを復習から外す' : 'このページを復習に追加', icon: 'brain', onClick: () => this.toggleReview(page) },
+      { label: 'このページの固定をすべて解除', icon: 'unlock', onClick: () => this.unlockPage(page) },
       { label: '全テープを隠す', icon: 'eyeOff', onClick: () => this.editor.setAllTapes(true) },
       { label: '全テープをめくる', icon: 'eye', onClick: () => this.editor.setAllTapes(false) },
       null,

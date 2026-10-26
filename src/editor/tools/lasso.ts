@@ -57,17 +57,28 @@ export class LassoTool implements Tool {
       // Select the top-most object under the pen.
       const x = s.wx - hit.ox, y = s.wy - hit.oy;
       const tol = 8 / this.ed.vp.zoom;
+      const pick = (id: string, locked?: boolean) => {
+        if (locked) this.ed.onLockedTap(page, id, s.sx, s.sy);
+        else this.ed.selection.set(page.id, [id]);
+      };
+      // Same order as painting, top-most first: tapes/text, ink, then photos/scans underneath.
+      const above = (t: string) => t === 'tape' || t === 'text';
       for (let i = page.items.length - 1; i >= 0; i--) {
-        if (itemContains(page.items[i], x, y, tol)) return this.ed.selection.set(page.id, [page.items[i].id]);
+        const it = page.items[i];
+        if (above(it.type) && itemContains(it, x, y, tol)) return pick(it.id, it.locked);
       }
       for (let i = page.strokes.length - 1; i >= 0; i--) {
         const st = page.strokes[i];
         const p = st.pts;
         const reach = tol + st.width / 2;
-        if (p.length === 3 && Math.hypot(x - p[0], y - p[1]) <= reach) return this.ed.selection.set(page.id, [st.id]);
+        if (p.length === 3 && Math.hypot(x - p[0], y - p[1]) <= reach) return pick(st.id, st.locked);
         for (let k = 0; k + 5 < p.length; k += 3) {
-          if (distToSegment(x, y, p[k], p[k + 1], p[k + 3], p[k + 4]) <= reach) return this.ed.selection.set(page.id, [st.id]);
+          if (distToSegment(x, y, p[k], p[k + 1], p[k + 3], p[k + 4]) <= reach) return pick(st.id, st.locked);
         }
+      }
+      for (let i = page.items.length - 1; i >= 0; i--) {
+        const it = page.items[i];
+        if (!above(it.type) && itemContains(it, x, y, tol)) return pick(it.id, it.locked);
       }
       return;
     }
@@ -75,6 +86,7 @@ export class LassoTool implements Tool {
     if (poly.length < 3) return;
     const ids: string[] = [];
     for (const st of page.strokes) {
+      if (st.locked) continue;
       const p = st.pts;
       const n = p.length / 3;
       const step = Math.max(1, Math.floor(n / 40));
@@ -86,6 +98,7 @@ export class LassoTool implements Tool {
       if (total && inside / total >= 0.5) ids.push(st.id);
     }
     for (const it of page.items) {
+      if (it.locked) continue;
       const c = itemCenter(it);
       if (pointInPolygon(c.x, c.y, poly)) ids.push(it.id);
     }
