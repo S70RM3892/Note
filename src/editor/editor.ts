@@ -54,6 +54,12 @@ export class Editor {
   sideButtonHeld = false;
   /** Reference viewer: the pen scrolls instead of writing and nothing is modified. */
   readOnly = false;
+  /**
+   * The Android shell's low-latency wet ink (null in a browser). The pen tool claims the shell's
+   * wet stroke when it starts (and then doesn't draw its own live ink), cancels it when the
+   * stroke is dropped or snaps to a shape, and reports when the committed stroke is on screen.
+   */
+  wet: { claim(): boolean; done(): void; cancel(): void } | null = null;
 
   private ui: HTMLCanvasElement;
   private uiCtx: CanvasRenderingContext2D;
@@ -255,11 +261,12 @@ export class Editor {
     ctx.restore();
   }
 
-  commitStroke(pageId: string, s: Stroke) {
+  commitStroke(pageId: string, s: Stroke, wet = false) {
     this.doc!.addStroke(pageId, s);
-    // Show the stroke on the main canvas before the live layer is wiped.
+    // Show the stroke on the main canvas before the live layer (or the shell's wet ink) is wiped.
     this.renderer.renderNow();
     this.live.clearSoon();
+    if (wet) requestAnimationFrame(() => requestAnimationFrame(() => this.wet?.done()));
   }
 
   noteActivity(ms: number) {

@@ -40,6 +40,7 @@ AI・録音は Samsung Notes の領分。こっちは**受験で点を取るた�
 
 APK 版だけの機能：
 - **スキャナーで撮影**（Google ML Kit ドキュメントスキャナー）：紙の輪郭を自動検出して撮影・台形補正・影や指の除去まで端末内で済ませ、そのままベクター化に回す。カメラ権限はアプリに不要（Google Play 開発者サービスが担当）。
+- **低遅延ペン**：書いている線は Android が直接、フロントバッファ（画面に出ている最中のバッファ）に描く。Web の描画パイプラインを待たないのでペン先への追従が速い。さらにペンのサンプルは1フレームにまとめずに届いた瞬間に受け取り、Android の動き予測で先を補う。描き終えた線はノートに確定してから差し替えるので、見た目は変わらない。おかしければ 設定 → ペン →「低遅延ペン」をオフ。
 - **S ペンのボタンを押しながら書くと消しゴム**（ブラウザ版では不可。下の「S ペンの設定のコツ」）。
 - **手書き文字認識**（Google ML Kit Digital Ink、日本語）：設定 → 手書き文字認識 → モデルをダウンロード（約20MB、1回だけ。以後は端末内で動きネット不要）。ライブラリを開いている間に書いたページを少しずつ読み取り、検索欄で手書きの言葉が「手書き」として見つかる。投げ縄で囲んで「テキストに変換」→ 読みを直す／候補をタップ →「置き換え」（元に戻すで手書きに戻る）か「コピー」。
 - **自動バックアップ**：設定 → 自動バックアップ →「フォルダを選ぶ」。以後ライブラリを開いたとき1日1回、全ノートを `sumi-backup-日付.sumi` で書き出し、最新10個を残す。Google ドライブのフォルダを選べば端末ごと失くしても残る。
@@ -106,6 +107,7 @@ base64 -w0 sumi-release.jks   # 出力全体を SUMI_KEYSTORE_B64 に
 
 ### ツール
 - **お気に入りペン**：ペンの種類・色・太さの組み合わせをツールバーの ☆ で登録（8本まで）。タップ1回でそのペンに戻る。外すときはペンをもう一度タップ → お気に入りペンの ×。
+- **線の処理（速記対応）**：ペンの入力は Google の Ink Stroke Modeler と同じ方式で整える。ゆっくり書くときだけ手ぶれを平均し、速く書くときは生の位置に従う。1秒480点以上に補間したうえで、ペン先をバネでつながれた重りとして動かすので、速く書いた「の」もカクカクせず滑らかになる。書き終わりはペン先がバネに沿って離した位置まで追いつく（直線でワープしない）ので、はね・はらいの形が残る。バネは元の設定より硬くしてあり、速く書いた「く」「レ」の角も丸まらない（750 px/s のジグザグで角のずれ 2.6 px）。設定の「手ぶれ補正」は、ゆっくり書くときの平均の強さ。
 - **ペン**：ボールペン / 万年筆（筆圧で強弱が大きい）/ サインペン（一定幅）/ 鉛筆（黒鉛のザラつき）。書いている途中の線も確定後と同じ見た目で、低遅延レイヤーに描く。
 - **マーカー**：インクの下に塗られる（乗算合成）。一番右の濃い緑は **暗記マーカー**：黒字の上に引くと赤シートで字が消える。
 - **消しゴム**：部分消し（線を途中で切る）/ 線ごと消し。暗記テープも消せる。
@@ -160,7 +162,7 @@ npm run build && cd android && ./gradlew assembleRelease   # → app/build/outpu
 
 構成：
 
-- `src/core` — データモデル、筆跡ジオメトリ（筆圧円の外接線による輪郭）、図形認識、部分消しゴム、復習スケジューラ、Undo
+- `src/core` — データモデル、筆跡ジオメトリ（筆圧円の外接線による輪郭）、ストロークモデラー（`modeler.ts`、Ink Stroke Modeler の移植。APK 側の `Modeler.kt` と同じ計算をテストで突き合わせている）、図形認識、部分消しゴム、復習スケジューラ、Undo
 - `src/editor` — ビューポート、描画（ページ単位のビットマップキャッシュ＋深いズーム時のベクター描画、PDF の部分高解像度描画）、低遅延ライブレイヤー（`desynchronized` キャンバス＋予測点）、入力（パームリジェクション、ジェスチャー）、各ツール
 - `src/store` — IndexedDB、設定、バックアップ（zip）
 - `src/pdf` — pdf.js（CJK cmap 同梱でオフライン表示）、pdf-lib による書き出し
@@ -168,8 +170,8 @@ npm run build && cd android && ./gradlew assembleRelease   # → app/build/outpu
 - `src/app` — 画面（ライブラリ、エディタ、ダイアログ、スキャン）
 - `src/scan` — 写真 → ベクター（Web Worker）：射影変換、紙の色の推定による影除去、ヒステリシス二値化、色相ヒストグラムで色分け、輪郭追跡（穴あり）→ 単純化・平滑化 → SVG パス
 - `src/platform.ts` — APK のネイティブ連携（`window.SumiNative`）。ブラウザでは何もしない
-- `android/` — Kotlin の薄いシェル：WebView（`WebViewAssetLoader` で `https://appassets.androidplatform.net` から dist を配信）、ML Kit ドキュメントスキャナー、保存/共有、「アプリで開く」、S ペンのボタン、戻る
+- `android/` — Kotlin の薄いシェル：低遅延ペン（`WetInk.kt`、`CanvasFrontBufferedRenderer` + `MotionEventPredictor`）、WebView（`WebViewAssetLoader` で `https://appassets.androidplatform.net` から dist を配信）、ML Kit ドキュメントスキャナー、保存/共有、「アプリで開く」、S ペンのボタン、戻る
 
 CI（`.github/workflows/ci.yml`）は型チェック → ユニット → ビルド → E2E を実行し、既定ブランチなら GitHub Pages に公開、APK をビルドして Releases（タグ `apk`）に置く。
 
-ライセンス表記：アイコンは [Lucide](https://lucide.dev)（ISC）、PDF 表示は [pdf.js](https://github.com/mozilla/pdf.js)（Apache-2.0）、PDF 書き出しは [pdf-lib](https://github.com/Hopding/pdf-lib)（MIT）、zip は [fflate](https://github.com/101arrowz/fflate)（MIT）、APK のスキャナーは [ML Kit Document Scanner](https://developers.google.com/ml-kit/vision/doc-scanner)。
+ライセンス表記：筆跡モデルは [Ink Stroke Modeler](https://github.com/google/ink-stroke-modeler)（Apache-2.0）のアルゴリズムを移植、アイコンは [Lucide](https://lucide.dev)（ISC）、PDF 表示は [pdf.js](https://github.com/mozilla/pdf.js)（Apache-2.0）、PDF 書き出しは [pdf-lib](https://github.com/Hopding/pdf-lib)（MIT）、zip は [fflate](https://github.com/101arrowz/fflate)（MIT）、APK のスキャナーは [ML Kit Document Scanner](https://developers.google.com/ml-kit/vision/doc-scanner)。

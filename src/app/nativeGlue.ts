@@ -1,4 +1,5 @@
-import { native, nativeIncoming, setNativeCallbacks } from '../platform';
+import type { Editor } from '../editor/editor';
+import { native, nativeIncoming, setNativeCallbacks, type SumiNativeBridge } from '../platform';
 import { toast } from '../ui/dialogs';
 import type { App } from './app';
 import { importSharedFiles } from './share';
@@ -49,6 +50,7 @@ export function installNativeGlue(app: App) {
   };
   syncPenButton();
   app.settings.subscribe(syncPenButton);
+  installWetInk(app, bridge);
   setNativeCallbacks({
     onPenButton: (down) => app.setPenButton(down),
     onBack: () => {
@@ -62,4 +64,48 @@ export function installNativeGlue(app: App) {
     onIncoming: () => void takeIncoming(),
   });
   void takeIncoming();
+}
+
+/**
+ * Low-latency wet ink: the shell draws pen strokes natively in a front-buffered overlay over the
+ * writing area. It needs to know where that area is and how the pen draws; the editor's pen
+ * tool claims / confirms / cancels each wet stroke (Editor.wet).
+ */
+function installWetInk(app: App, bridge: SumiNativeBridge) {
+  if (!bridge.setWetInk || !bridge.wetClaim) return;
+  app.withEditor((ed: Editor) => {
+    ed.wet = {
+      claim: () => !!bridge.wetClaim?.(),
+      done: () => bridge.wetDone?.(),
+      cancel: () => bridge.wetCancel?.(),
+    };
+    let last = '';
+    const sync = () => {
+      const s = app.settings.get();
+      const r = ed.el.getBoundingClientRect();
+      // Off when anything floats over the page (menus, dialogs) or the pen isn't the tool.
+      const covered = !!document.querySelector('.modal-backdrop, .popover-layer');
+      const on = s.wetInk && !!ed.doc && ed.el.isConnected && ed.tool === 'pen' && !ed.readOnly && !covered && r.width > 0 && r.height > 0;
+      const json = JSON.stringify({
+        on,
+        rect: on ? [r.left, r.top, r.width, r.height].map((v) => Math.round(v * 100) / 100) : [0, 0, 0, 0],
+        dpr: window.devicePixelRatio || 1,
+        zoom: ed.vp.zoom,
+        color: s.pen.color,
+        style: s.pen.style,
+        width: s.pen.width,
+        gamma: s.pressureGamma,
+        stab: s.stabilization,
+      });
+      if (json === last) return;
+      last = json;
+      bridge.setWetInk!(json);
+    };
+    ed.subscribe(sync);
+    app.settings.subscribe(sync);
+    window.addEventListener('resize', sync);
+    window.addEventListener('hashchange', () => setTimeout(sync, 0));
+    new MutationObserver(sync).observe(document.body, { childList: true });
+    sync();
+  });
 }

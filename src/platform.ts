@@ -25,6 +25,14 @@ export interface SumiNativeBridge {
   pickBackupFolder?(): void;
   /** 集中モード: pin the app to the screen (true) or release it. */
   setFocusLock?(on: boolean): void;
+  /** Low-latency wet ink: where and how the pen draws (JSON {on, rect, dpr, zoom, color, style, width, gamma, stab}). */
+  setWetInk?(json: string): void;
+  /** The page's pen stroke started: true if the shell already shows it as wet ink. */
+  wetClaim?(): boolean;
+  /** The committed stroke is on screen: the shell erases its wet copy. */
+  wetDone?(): void;
+  /** The page dropped the stroke (no page under the pen, or it snapped to a shape). */
+  wetCancel?(): void;
   /** Handwriting recognition (ML Kit Digital Ink, Japanese): 'ready' | 'missing' | 'downloading' | 'unsupported'. */
   inkStatus?(): string;
   /** Download the recognition model; result via onInkModel(json {ok, error?}). */

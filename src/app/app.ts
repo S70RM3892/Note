@@ -65,12 +65,21 @@ export class App {
     if (this.view instanceof EditorView) await this.view.save();
   }
 
+  private editorHooks: ((ed: Editor) => void)[] = [];
+
+  /** Run `fn` with the shared editor as soon as it exists. */
+  withEditor(fn: (ed: Editor) => void) {
+    if (this.editor) fn(this.editor);
+    else this.editorHooks.push(fn);
+  }
+
   /** Shared editor canvas (created on first use, moved between views). */
   getEditor(host: HTMLElement): Editor {
     if (!this.editor) {
       this.editor = new Editor(host, this.settings, this.assets);
       this.editor.toast = (m) => toast(m, 900);
       this.editor.onActivity = () => this.stats.activity();
+      this.editorHooks.splice(0).forEach((fn) => fn(this.editor!));
     } else host.appendChild(this.editor.el);
     return this.editor;
   }

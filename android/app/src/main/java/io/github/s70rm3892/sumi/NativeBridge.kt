@@ -86,6 +86,26 @@ class NativeBridge(private val activity: MainActivity) {
     @JavascriptInterface
     fun recognizeInk(json: String) = activity.runOnUiThread { activity.ink.recognize(json) }
 
+    /** Low-latency wet ink: where and how the pen draws (JSON, see WetParams). */
+    @JavascriptInterface
+    fun setWetInk(json: String) = activity.wetInk.setParams(json)
+
+    /** The page's pen stroke started: true if a wet stroke is already on screen for it. */
+    @JavascriptInterface
+    fun wetClaim(): Boolean = activity.wetInk.claim()
+
+    /** The committed stroke is on screen: drop the wet copy. */
+    @JavascriptInterface
+    fun wetDone() {
+        activity.wetInk.done()
+    }
+
+    /** The page discarded the stroke (no page under the pen, or it snapped to a shape). */
+    @JavascriptInterface
+    fun wetCancel() {
+        activity.wetInk.cancel()
+    }
+
     /** The side button's action in the page's settings ("eraser" | "lasso" | "none"). */
     @JavascriptInterface
     fun setPenButtonAction(action: String) {

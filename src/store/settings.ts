@@ -46,6 +46,8 @@ export interface Settings {
   lastAutoBackup: number;
   /** APK: pin the app to the screen while the exam timer runs. */
   focusPin: boolean;
+  /** APK: draw the stroke being written natively (front-buffered, lowest latency). */
+  wetInk: boolean;
   // Notebook defaults
   defaultPaper: { size: string; tpl: string; spacing: number; color: string };
 }
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoBackup: false,
   lastAutoBackup: 0,
   focusPin: false,
+  wetInk: true,
   defaultPaper: { size: 'a4', tpl: 'grid', spacing: 5, color: '#ffffff' },
 };
 

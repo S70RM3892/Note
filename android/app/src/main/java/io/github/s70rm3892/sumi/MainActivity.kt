@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
         }
         web = createWebView()
         container.addView(web)
+        wetInk = WetInk(container, onFail = { toast(it) })
         hideSystemBars()
 
         onBackPressedDispatcher.addCallback(this) {
@@ -218,15 +219,21 @@ class MainActivity : ComponentActivity() {
     // ---------- S Pen side button ----------
 
     val stylusFilter = StylusButtonFilter()
+    lateinit var wetInk: WetInk
     lateinit var ink: InkRecognizer
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         trackPenButton(ev)
-        val fixed = stylusFilter.filter(ev) ?: return super.dispatchTouchEvent(ev)
+        val fixed = stylusFilter.filter(ev)
+        val e = fixed ?: ev
+        // Pen samples as soon as the digitizer reports them, not batched to the next frame.
+        if (e.actionMasked == MotionEvent.ACTION_DOWN && e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS) web.requestUnbufferedDispatch(e)
+        // Low-latency wet ink first, then the page (which commits the real stroke).
+        wetInk.onTouch(e, penButton && stylusFilter.action != "none")
         return try {
-            super.dispatchTouchEvent(fixed)
+            super.dispatchTouchEvent(e)
         } finally {
-            fixed.recycle()
+            fixed?.recycle()
         }
     }
 

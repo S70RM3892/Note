@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { PDFDocument } from 'pdf-lib';
-import { docInfo, line, newNotebook, pen } from './helpers';
+import { docInfo, line, newNotebook, pen, penHold, penLift } from './helpers';
 
 /**
  * The Android shell (android/) exposes window.SumiNative. These tests stand in a fake
@@ -41,6 +41,11 @@ async function fakeBridge(page: Page, incoming: { url: string; name: string; mim
           w.__sumiNative.onBackupFolder(JSON.stringify({ ok: true, name: 'Drive/Sumi' }));
         }, 20),
       setFocusLock: (on: boolean) => (w.__focus ??= []).push(on),
+      // Wet ink: the test decides whether the shell "drew" the stroke (default: no).
+      setWetInk: (json: string) => (w.__wet ??= []).push(JSON.parse(json)),
+      wetClaim: () => !!w.__wetDraws,
+      wetDone: () => (w.__wetDone = (w.__wetDone ?? 0) + 1),
+      wetCancel: () => (w.__wetCancel = (w.__wetCancel ?? 0) + 1),
       // Fake recognizer: names a line by its stroke count ("3画") so tests can check the plumbing.
       inkStatus: () => w.__inkStatus ?? 'ready',
       inkDownload: () => setTimeout(() => ((w.__inkStatus = 'ready'), w.__sumiNative.onInkModel(JSON.stringify({ ok: true }))), 20),
@@ -282,4 +287,76 @@ test('APK: daily backup into the chosen folder; 集中モード pins the app whi
   await page.getByTestId('timer-toggle').click();
   await page.getByTestId('timer-toggle').click();
   expect(await page.evaluate(() => (window as any).__focus)).toEqual([false, true, false]);
+});
+
+test('low-latency wet ink: the page tells the shell where the pen draws and hands each stroke over', async ({ page }) => {
+  await fakeBridge(page);
+  await newNotebook(page);
+  const lastParams = () => page.evaluate(() => (window as any).__wet.at(-1));
+  let p = await lastParams();
+  expect(p.on).toBe(true);
+  expect(p.style).toBe('ballpoint');
+  expect(p.dpr).toBe(2);
+  const rect = await page.evaluate(() => {
+    const r = (window as any).sumi.editor.el.getBoundingClientRect();
+    return [r.left, r.top, r.width, r.height];
+  });
+  rect.forEach((v: number, i: number) => expect(p.rect[i]).toBeCloseTo(v, 1));
+
+  // Pixels on the page's own live layer while the pen is down.
+  const liveInk = () =>
+    page.evaluate(() => {
+      const c = (window as any).sumi.editor.live.canvas as HTMLCanvasElement;
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+      return n;
+    });
+
+  // The shell drew it: the page draws nothing live, commits the stroke, then reports done.
+  await page.evaluate(() => ((window as any).__wetDraws = true));
+  await penHold(page, line(300, 300, 600, 330));
+  expect(await liveInk()).toBe(0);
+  await penLift(page, 600, 330);
+  await expect.poll(() => page.evaluate(() => (window as any).__wetDone ?? 0)).toBe(1);
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(1);
+
+  // The shell didn't draw it: the page shows its own live ink and has nothing to report.
+  await page.evaluate(() => ((window as any).__wetDraws = false));
+  await penHold(page, line(300, 400, 600, 430));
+  expect(await liveInk()).toBeGreaterThan(100);
+  await penLift(page, 600, 430);
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => (window as any).__wetDone)).toBe(1);
+
+  // Snapping to a shape takes the wet stroke away (the shape preview is the page's).
+  await page.evaluate(() => ((window as any).__wetDraws = true));
+  await pen(page, line(300, 500, 700, 500), { holdMs: 700 });
+  expect(await page.evaluate(() => (window as any).__wetCancel)).toBe(1);
+  // A pen-down off the paper (on the grey desk) is dropped too.
+  const desk = await page.evaluate(() => {
+    const ed = (window as any).sumi.editor;
+    const r = ed.vp.rects[0];
+    return [ed.vp.toScreenX(r.x) / 2 + 4, 400];
+  });
+  await pen(page, [
+    [desk[0], desk[1]],
+    [desk[0] + 3, desk[1] + 30],
+  ]);
+  expect(await page.evaluate(() => (window as any).__wetCancel)).toBe(2);
+
+  // Off while a menu is open and for other tools; follows the zoom.
+  await page.getByTestId('more').click();
+  await expect.poll(async () => (await lastParams()).on).toBe(false);
+  await page.mouse.click(150, 700); // outside the menu: closes it
+  await expect(page.locator('.popover-layer')).toHaveCount(0);
+  await expect.poll(async () => (await lastParams()).on).toBe(true);
+  await page.getByTestId('tool-highlighter').click();
+  await expect.poll(async () => (await lastParams()).on).toBe(false);
+  await page.getByTestId('tool-pen').click();
+  await page.evaluate(() => (window as any).sumi.editor.setZoom(2.5));
+  await expect.poll(async () => (await lastParams()).zoom).toBeCloseTo(2.5, 2);
+  // The setting turns it off.
+  await page.evaluate(() => (window as any).sumi.settings.update({ wetInk: false }));
+  await expect.poll(async () => (await lastParams()).on).toBe(false);
 });
