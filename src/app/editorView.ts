@@ -5,7 +5,7 @@ import { EditorDoc } from '../editor/doc';
 import type { Editor } from '../editor/editor';
 import { hasClipboard } from '../editor/selection';
 import type { ToolName } from '../editor/tool';
-import { exportPng, thumbnail } from '../pdf/export';
+import { exportPng, thumbnail, waitForAssets } from '../pdf/export';
 import { pdfToPages } from '../pdf/import';
 import { exportBackup } from '../store/backup';
 import { RED_SHEET_ORANGE, type Settings } from '../store/settings';
@@ -198,7 +198,11 @@ export class EditorView implements View {
     this.editor.close();
     try {
       const first = doc.pages[0];
-      if (first) doc.nb.thumb = thumbnail(first, this.app.assets, 220).toDataURL('image/webp', 0.75);
+      if (first) {
+        // A PDF cover may not be rendered yet if the notebook was opened deep inside.
+        if (first.pdf || first.items.some((i) => i.type === 'image')) await waitForAssets(first, this.app.assets, 0.6, 800);
+        doc.nb.thumb = thumbnail(first, this.app.assets, 220).toDataURL('image/webp', 0.75);
+      }
     } catch {
       /* thumbnail is optional */
     }
