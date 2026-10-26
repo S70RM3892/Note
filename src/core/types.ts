@@ -72,7 +72,7 @@ export interface VectorDoc {
   layers: { color: string; tiles: { b: [number, number, number, number]; d: string }[] }[];
 }
 
-export type TemplateId = 'blank' | 'ruled' | 'grid' | 'dots' | 'cornell' | 'split';
+export type TemplateId = 'blank' | 'ruled' | 'grid' | 'dots' | 'cornell' | 'split' | 'genkou' | 'english' | 'section';
 
 export interface PageBackground {
   tpl: TemplateId;

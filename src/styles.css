@@ -1391,3 +1391,27 @@ select.input {
   height: 52px;
   font-size: 16px;
 }
+
+.countdown .cd-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+.countdown .cd-name {
+  flex: 1;
+  font-size: 14px;
+}
+.countdown .cd-days {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.countdown .cd-days small {
+  font-size: 13px;
+  margin-left: 2px;
+}
+.countdown .cd-days.today {
+  color: var(--danger);
+  font-size: 20px;
+}

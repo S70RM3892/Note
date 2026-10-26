@@ -225,3 +225,31 @@ test.describe('offline', () => {
     expect((await docInfo(page)).pages[0].strokes.length).toBe(1);
   });
 });
+
+test('入試カウントダウン and the 原稿用紙 / 英語4線 templates', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-26T20:00:00+09:00'));
+  await page.goto('/');
+  const cd = page.getByTestId('countdown');
+  await expect(cd).toContainText('共通テスト');
+  await expect(cd).toContainText('82日');
+  await expect(cd).toContainText('京大 二次');
+  await expect(cd).toContainText('122日');
+  await page.screenshot({ path: 'test-results/countdown.png' });
+
+  for (const [title, label] of [
+    ['作文', '原稿用紙 400字'],
+    ['英作文', '英語4線'],
+  ]) {
+    await page.goto('/');
+    await page.getByTestId('new-notebook').click();
+    await page.getByTestId('nb-title').fill(title);
+    await page.getByText(label, { exact: true }).click();
+    if (label.startsWith('原稿')) await page.getByText('A4 横', { exact: true }).click();
+    await page.getByTestId('create-notebook').click();
+    await page.waitForFunction(() => !!(window as any).sumi?.view?.doc);
+    await page.waitForTimeout(500);
+    const tpl = await page.evaluate(() => (window as any).sumi.view.doc.pages[0].bg.tpl);
+    expect(tpl).toBe(label.startsWith('原稿') ? 'genkou' : 'english');
+    await page.screenshot({ path: `test-results/tpl-${tpl}.png` });
+  }
+});

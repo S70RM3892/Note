@@ -1,4 +1,5 @@
 import type { Settings } from '../store/settings';
+import type { ExamDate } from '../study/countdown';
 import { h } from '../ui/dom';
 import { modal } from '../ui/dialogs';
 import type { App } from './app';
@@ -24,6 +25,28 @@ function slider(label: string, min: number, max: number, step: number, value: nu
     },
   });
   return h('div', { class: 'field' }, h('div', { class: 'row' }, h('span', { class: 'field-label', style: 'margin:0' }, label), h('span', { class: 'spacer' }), out), input);
+}
+
+function examEditor(initial: ExamDate[], on: (v: ExamDate[]) => void): HTMLElement {
+  let list = initial.map((e) => ({ ...e }));
+  const host = h('div', { class: 'exam-editor', 'data-testid': 'exam-editor' });
+  const render = () => {
+    host.replaceChildren(
+      ...list.map((e, i) =>
+        h(
+          'div',
+          { class: 'row', style: 'gap:8px;margin-bottom:6px' },
+          h('input', { class: 'input', style: 'flex:1', value: e.name, placeholder: '試験名', onchange: (ev: Event) => ((e.name = (ev.target as HTMLInputElement).value), on(list)) }),
+          h('input', { class: 'input', type: 'date', style: 'width:170px', value: e.date, onchange: (ev: Event) => ((e.date = (ev.target as HTMLInputElement).value), on(list)) }),
+          h('button', { class: 'btn small', 'aria-label': '削除', onclick: () => ((list = list.filter((_, j) => j !== i)), on(list), render()) }, '削除'),
+        ),
+      ),
+      h('button', { class: 'btn small', onclick: () => (list.push({ name: '', date: '' }), render()) }, '＋ 追加'),
+      h('div', { class: 'muted', style: 'font-size:12px;margin-top:4px' }, '初期値は 2027年の共通テスト（1/16）と京大前期（2/25）。毎年の募集要項で確かめて直せ。'),
+    );
+  };
+  render();
+  return host;
 }
 
 export function openSettings(app: App) {
@@ -104,6 +127,8 @@ export function openSettings(app: App) {
         (v) => set({ layout: v }),
       ),
     ),
+    h('h3', null, '入試日（ライブラリにカウントダウン）'),
+    examEditor(s.exams, (exams) => set({ exams })),
     h('h3', null, '睡眠'),
     toggle('就寝リマインダー', '就寝時刻を過ぎたら上部に表示', s.bedtimeEnabled, (v) => set({ bedtimeEnabled: v })),
     h('div', { class: 'toggle-row' }, h('div', null, '就寝時刻'), time(s.bedtime, (v) => set({ bedtime: v }))),

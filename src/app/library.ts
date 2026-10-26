@@ -14,6 +14,7 @@ import { openSettings } from './settingsView';
 import { exportNotebookPdfDialog } from './exportDialog';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
+import { formatExamDate, upcomingExams } from '../study/countdown';
 
 type FolderFilter = 'all' | 'fav' | string;
 
@@ -116,8 +117,24 @@ export class LibraryView implements View {
     const max = Math.max(1800, ...days.map((d) => d.sec));
     const s = settings.get();
     const backupAge = s.lastBackup ? Math.floor((now - s.lastBackup) / 86400000) : Infinity;
+    const exams = upcomingExams(s.exams);
     clear(this.strip);
     append(this.strip, [
+      exams.length
+        ? h(
+            'div',
+            { class: 'card countdown', 'data-testid': 'countdown' },
+            h('h3', null, '入試まで'),
+            exams.slice(0, 3).map((e) =>
+              h(
+                'div',
+                { class: 'cd-row' },
+                h('span', { class: 'cd-name' }, e.name, h('small', { class: 'muted' }, ' ' + formatExamDate(e.date))),
+                e.days === 0 ? h('b', { class: 'cd-days today' }, '今日') : h('b', { class: 'cd-days' }, `${e.days}`, h('small', null, '日')),
+              ),
+            ),
+          )
+        : null,
       h(
         'div',
         { class: 'card' },

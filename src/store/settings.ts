@@ -1,4 +1,5 @@
 import type { PenStyle } from '../core/types';
+import { DEFAULT_EXAMS, type ExamDate } from '../study/countdown';
 
 export interface PenPreset {
   style: PenStyle;
@@ -34,6 +35,8 @@ export interface Settings {
   nightFilter: boolean;
   backupReminderDays: number;
   lastBackup: number;
+  /** Countdown targets shown in the library. */
+  exams: ExamDate[];
   // Notebook defaults
   defaultPaper: { size: string; tpl: string; spacing: number; color: string };
 }
@@ -65,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   nightFilter: true,
   backupReminderDays: 7,
   lastBackup: 0,
+  exams: DEFAULT_EXAMS,
   defaultPaper: { size: 'a4', tpl: 'grid', spacing: 5, color: '#ffffff' },
 };
 
