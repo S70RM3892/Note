@@ -45,6 +45,8 @@ async function boot() {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || import.meta.env.DEV) return;
+  // Reload only when the user accepted an update — not when the first install claims the page.
+  let updateRequested = false;
   navigator.serviceWorker
     .register('./sw.js')
     .then((reg) => {
@@ -59,6 +61,7 @@ function registerServiceWorker() {
               class: 'btn primary small',
               onclick: async () => {
                 await window.sumi?.flush();
+                updateRequested = true;
                 w.postMessage('skipWaiting');
               },
             },
@@ -76,7 +79,7 @@ function registerServiceWorker() {
       });
       let reloaded = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (reloaded) return;
+        if (reloaded || !updateRequested) return;
         reloaded = true;
         location.reload();
       });
