@@ -1587,3 +1587,110 @@ select.input {
   flex: 1;
   min-width: 0;
 }
+
+.icon-btn.marked {
+  color: var(--accent);
+}
+.icon-btn.marked svg {
+  fill: currentColor;
+}
+.mark-item {
+  align-items: center;
+  padding: 0 4px 0 0;
+}
+.mark-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 10px;
+  text-align: left;
+}
+.mark-go svg {
+  flex: none;
+  color: var(--accent);
+  fill: currentColor;
+}
+.mark-go span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-thumb .mark-ribbon {
+  position: absolute;
+  left: 10px;
+  top: -3px;
+  width: 14px;
+  height: 22px;
+  background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  pointer-events: none;
+}
+
+.graph-dialog {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+}
+.graph-form .field {
+  margin: 10px 0;
+}
+.graph-exprs {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, 'Noto Sans Mono', monospace;
+  line-height: 1.5;
+}
+.graph-error {
+  min-height: 1.2em;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--danger);
+}
+.graph-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.graph-range > span {
+  width: 14px;
+  font-style: italic;
+  font-weight: 700;
+}
+.graph-num {
+  width: 110px;
+  text-align: center;
+}
+.graph-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 14px;
+}
+.graph-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+.graph-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.graph-preview {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+@media (max-width: 760px) {
+  .graph-dialog {
+    grid-template-columns: 1fr;
+  }
+}

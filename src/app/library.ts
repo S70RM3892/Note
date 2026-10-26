@@ -37,6 +37,8 @@ export class LibraryView implements View {
   private unsub: () => void;
   /** Stops the background handwriting reader when the library closes. */
   private inkAbort = new AbortController();
+  /** Kept across strip re-renders so a half-typed to-do survives them. */
+  private todoEl: HTMLElement | null = null;
 
   constructor(private app: App) {
     try {
@@ -120,7 +122,7 @@ export class LibraryView implements View {
         h(
           'button',
           { class: 'search-hit', onclick: () => this.app.go(`#/nb/${hit.nb.id}/${hit.page}`) },
-          h('span', { class: 'badge' }, hit.kind === 'pdf' ? 'PDF' : hit.kind === 'ink' ? '手書き' : '文字'),
+          h('span', { class: 'badge' }, { mark: 'しおり', pdf: 'PDF', ink: '手書き', text: '文字' }[hit.kind]),
           h('b', null, `${hit.nb.title} p.${hit.page + 1}`),
           h('span', { class: 'muted' }, hit.snippet),
         ),
@@ -138,6 +140,8 @@ export class LibraryView implements View {
     const s = settings.get();
     const backupAge = s.lastBackup ? Math.floor((now - s.lastBackup) / 86400000) : Infinity;
     const exams = upcomingExams(s.exams);
+    this.todoEl ??= this.todoCard();
+    const focused = this.todoEl.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
     clear(this.strip);
     append(this.strip, [
       exams.length
@@ -155,7 +159,7 @@ export class LibraryView implements View {
             ),
           )
         : null,
-      this.todoCard(),
+      this.todoEl,
       h(
         'div',
         { class: 'card' },
@@ -212,6 +216,7 @@ export class LibraryView implements View {
           )
         : null,
     ]);
+    focused?.focus();
   }
 
   /** 今日やること: a short list for the day; unfinished items carry over to tomorrow. */

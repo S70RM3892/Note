@@ -39,3 +39,11 @@ describe('handwriting', () => {
     expect(hits.map((h) => h.kind)).toEqual(['ink']);
   });
 });
+
+describe('しおり', () => {
+  it('search finds bookmark names first', () => {
+    const a = nb('a', ['p1']);
+    const hits = searchPages([page('p1', 'a', { mark: '漸化式まとめ', ink: '漸化式の解き方' })], new Map([['a', a]]), '漸化式');
+    expect(hits.map((h) => [h.kind, h.snippet])).toEqual([['mark', '漸化式まとめ']]);
+  });
+});

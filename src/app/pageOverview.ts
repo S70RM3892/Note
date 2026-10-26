@@ -3,7 +3,7 @@ import type { EditorDoc } from '../editor/doc';
 import type { Editor } from '../editor/editor';
 import { thumbnail } from '../pdf/export';
 import { h } from '../ui/dom';
-import { menu, modal } from '../ui/dialogs';
+import { menu, modal, promptDialog } from '../ui/dialogs';
 import { icon } from '../ui/icons';
 
 export interface PageOverviewActions {
@@ -12,17 +12,64 @@ export interface PageOverviewActions {
   remove(i: number): void;
   toggleReview(page: Page): Promise<void>;
   isInReview(page: Page): boolean;
+  /** しおり: label to bookmark, undefined to remove. */
+  setMark(page: Page, label: string | undefined): void;
+}
+
+/** What a bookmark is called in lists: its label, else the start of the page's text. */
+export function markLabel(page: Page, index: number): string {
+  const text = (page.mark || page.ink || page.text || '').replace(/\s+/g, ' ').trim();
+  return text ? (text.length > 28 ? text.slice(0, 28) + '…' : text) : `${index + 1}ページ`;
 }
 
 /** Grid of page thumbnails: jump, reorder by dragging, per-page actions. */
 export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOverviewActions) {
   const grid = h('div', { class: 'pages-grid' });
   const toc = h('div', { class: 'toc', 'data-testid': 'toc' });
-  const m = modal(`ページ一覧（${doc.pages.length}）`, h('div', null, toc, grid), { wide: true });
+  const marks = h('div', { class: 'toc', 'data-testid': 'marks' });
+  const m = modal(`ページ一覧（${doc.pages.length}）`, h('div', null, marks, toc, grid), { wide: true });
   const current = editor.currentPage;
   void renderToc(toc, editor, doc, () => m.close());
 
+  const rename = async (page: Page, i: number) => {
+    const v = await promptDialog('しおりの名前', page.mark ?? '', markLabel(page, i));
+    if (v === null) return;
+    actions.setMark(page, v);
+    render();
+  };
+
+  const renderMarks = () => {
+    const marked = doc.pages.map((p, i) => [p, i] as const).filter(([p]) => p.mark !== undefined);
+    if (!marked.length) return marks.replaceChildren();
+    const list = h(
+      'div',
+      { class: 'toc-list' },
+      marked.map(([p, i]) =>
+        h(
+          'div',
+          { class: 'toc-item mark-item', 'data-testid': 'mark-item' },
+          h(
+            'button',
+            {
+              class: 'mark-go',
+              onclick: () => {
+                m.close();
+                editor.goToPage(i);
+              },
+            },
+            icon('bookmark', 15),
+            h('span', null, markLabel(p, i)),
+            h('span', { class: 'muted' }, `p.${i + 1}`),
+          ),
+          h('button', { class: 'icon-btn', 'aria-label': 'しおりの名前を変更', onclick: () => void rename(p, i) }, icon('pencil', 15)),
+        ),
+      ),
+    );
+    marks.replaceChildren(h('div', { class: 'field-label' }, 'しおり'), list);
+  };
+
   const render = () => {
+    renderMarks();
     grid.replaceChildren();
     doc.pages.forEach((page, i) => {
       const cv = thumbnail(page, editor.assets, 150);
@@ -32,6 +79,7 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
         { class: 'page-thumb' + (i === current ? ' current' : ''), 'data-index': i },
         cv,
         h('div', { class: 'num' }, `${i + 1}`, actions.isInReview(page) ? h('span', { class: 'badge' }, icon('brain', 11), '復習') : null),
+        page.mark !== undefined ? h('span', { class: 'mark-ribbon', title: markLabel(page, i) }) : null,
         more,
       );
       more.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -42,6 +90,10 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
           { label: '後ろにページを挿入', icon: 'filePlus', onClick: () => (actions.insert(i + 1), render()) },
           { label: '複製', icon: 'duplicate', onClick: () => (actions.duplicate(i), render()) },
           { label: actions.isInReview(page) ? '復習から外す' : '復習に追加', icon: 'brain', onClick: async () => (await actions.toggleReview(page), render()) },
+          page.mark === undefined
+            ? { label: 'しおりを付ける', icon: 'bookmark', onClick: () => (actions.setMark(page, ''), render()) }
+            : { label: 'しおりを外す', icon: 'bookmark', onClick: () => (actions.setMark(page, undefined), render()) },
+          ...(page.mark !== undefined ? [{ label: 'しおりの名前を変更', icon: 'pencil' as const, onClick: () => void rename(page, i) }] : []),
           null,
           { label: '削除', icon: 'trash', danger: true, disabled: doc.pages.length <= 1, onClick: () => (actions.remove(i), render()) },
         ]);

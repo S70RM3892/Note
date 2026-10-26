@@ -504,3 +504,68 @@ test('直線マーカー: a wobbly highlight becomes a straight, level line', as
   ]);
   expect(await page.evaluate(() => !!(window as any).sumi.view.doc.pages[0].strokes[1].shape)).toBe(false);
 });
+
+test('しおり: bookmark pages, name them, jump from the page list', async ({ page }) => {
+  await newNotebook(page);
+  await page.getByTestId('add-page').click();
+  await page.getByTestId('add-page').click();
+  await expect(page.getByTestId('page-pill')).toHaveText('3 / 3');
+  const mark = page.getByTestId('mark-btn');
+  await expect(mark).toHaveAttribute('aria-pressed', 'false');
+  await mark.click();
+  await expect(mark).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByTestId('page-pill').click();
+  const items = page.getByTestId('marks').getByTestId('mark-item');
+  await expect(items).toHaveCount(1);
+  await expect(items).toContainText('3ページ');
+  // Bookmark page 1 from its thumbnail menu and name it.
+  await page.locator('.page-thumb[data-index="0"] .more').click();
+  await page.getByRole('menuitem', { name: 'しおりを付ける' }).click();
+  await expect(items).toHaveCount(2);
+  await items.first().getByRole('button', { name: 'しおりの名前を変更' }).click();
+  await page.locator('.modal input.input').last().fill('漸化式まとめ');
+  await page.locator('.modal input.input').last().press('Enter');
+  await expect(items.first()).toContainText('漸化式まとめ');
+  await expect(page.locator('.page-thumb .mark-ribbon')).toHaveCount(2);
+  await page.screenshot({ path: 'test-results/bookmarks.png' });
+  await items.first().locator('.mark-go').click();
+  await expect(page.getByTestId('page-pill')).toHaveText('1 / 3');
+  await expect(mark).toHaveAttribute('aria-pressed', 'true');
+
+  // Saved with the page; the library search finds the name.
+  await flush(page);
+  await page.getByTestId('back').click();
+  await page.getByPlaceholder('ノートを検索').fill('漸化式');
+  await expect(page.locator('.search-hit').first()).toContainText('しおり');
+});
+
+test('関数グラフ: typed functions become vector strokes and labels on the page', async ({ page }) => {
+  await newNotebook(page);
+  await page.getByTestId('more').click();
+  await page.getByRole('menuitem', { name: '関数グラフを挿入' }).click();
+  // A typo is reported and blocks inserting.
+  await page.getByTestId('graph-exprs').fill('y = x^2 - 2x - 3\ny = sin(x');
+  await expect(page.getByTestId('graph-error')).toContainText('2本目');
+  await expect(page.getByTestId('graph-insert')).toBeDisabled();
+  await page.getByRole('button', { name: '三角関数' }).click();
+  await expect(page.getByTestId('graph-error')).toHaveText('');
+  await expect(page.getByTestId('graph-xmin')).toHaveValue('-2π');
+  await page.getByTestId('graph-grid').check();
+  await page.screenshot({ path: 'test-results/graph-dialog.png' });
+  await page.getByTestId('graph-insert').click();
+
+  const info = await docInfo(page);
+  const strokes = info.pages[0].strokes;
+  expect(strokes.every((s) => s.shape)).toBe(true);
+  expect(strokes.filter((s) => s.color === '#1e4fd8').length).toBeGreaterThanOrEqual(1); // cos x
+  const texts = info.pages[0].items.map((i) => i.text);
+  expect(texts).toEqual(expect.arrayContaining(['x', 'y', 'O', 'π', '2π', '−π/2', 'y=sin x', 'y=cos x']));
+  expect(info.tool).toBe('lasso');
+  await page.mouse.click(1240, 760); // deselect
+  await page.screenshot({ path: 'test-results/graph-page.png' });
+  // One undo removes the whole graph.
+  await page.getByTestId('undo').click();
+  const after = await docInfo(page);
+  expect(after.pages[0].strokes.length + after.pages[0].items.length).toBe(0);
+});

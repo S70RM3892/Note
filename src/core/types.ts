@@ -103,6 +103,8 @@ export interface Page {
   /** Handwriting recognized on this page (for search), and which strokes it was read from. */
   ink?: string;
   inkSig?: string;
+  /** しおり: the page is bookmarked, with this label ('' = untitled). */
+  mark?: string;
   strokes: Stroke[];
   items: Item[];
   updated: number;

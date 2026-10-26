@@ -179,6 +179,15 @@ export class EditorDoc {
     this.history.push({ undo: () => apply(prev), redo: () => apply(next) });
   }
 
+  /** しおり: label to bookmark the page, undefined to remove the bookmark. */
+  setMark(pageId: string, label: string | undefined) {
+    const p = this.byId.get(pageId);
+    if (!p) return;
+    if (label === undefined) delete p.mark;
+    else p.mark = label.trim().slice(0, 60);
+    this.markDirty(p.id);
+  }
+
   // ---------- persistence ----------
 
   markDirty(pageId: string) {

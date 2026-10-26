@@ -372,6 +372,7 @@ test('大問ラップ: split times per question, saved with the exam log', async
 test('学習の記録 heatmap/streak and 今日やること carry over', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-10-26T20:00:00+09:00'));
   await page.goto('/');
+  await page.waitForFunction(() => (window as any).sumi?.stats);
   // Studied the last three days (today included) and once a week earlier.
   await page.evaluate(() => {
     const s = (window as any).sumi.stats;
@@ -387,6 +388,11 @@ test('学習の記録 heatmap/streak and 今日やること carry over', async (
   const todos = page.getByTestId('todos');
   const input = page.getByTestId('todo-input');
   await input.fill('数学 2019 第4問 解き直し');
+  // The strip re-renders when stats change; a half-typed item must survive it.
+  await page.evaluate(() => (window as any).sumi.stats.save(true));
+  await expect(page.getByTestId('streak')).toBeVisible();
+  await expect(input).toHaveValue('数学 2019 第4問 解き直し');
+  await expect(input).toBeFocused();
   await input.press('Enter');
   await input.fill('英単語 100');
   await todos.getByRole('button', { name: '追加' }).click();

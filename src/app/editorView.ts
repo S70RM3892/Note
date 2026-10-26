@@ -24,7 +24,9 @@ import { LINE_HEIGHT } from '../editor/paint';
 import { exportNotebookPdfDialog } from './exportDialog';
 import { imageItem } from './importers';
 import { chipGroup, paperFields, swatchGroup } from './newNotebook';
-import { openPageOverview } from './pageOverview';
+import { markLabel, openPageOverview } from './pageOverview';
+import { openGraphDialog } from './graphDialog';
+import type { Graph } from '../core/graph';
 import { RefPane } from './refPane';
 import { handleScanResult } from './scanActions';
 import { openScanDialog } from './scanDialog';
@@ -89,6 +91,7 @@ export class EditorView implements View {
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private pagePill!: HTMLElement;
+  private markBtn!: HTMLButtonElement;
   private zoomPill!: HTMLElement;
   private titleEl!: HTMLElement;
   private sheetBtn!: HTMLElement;
@@ -304,10 +307,12 @@ export class EditorView implements View {
     tb.append(timerDock);
     // The page pill doubles as the ページ一覧 button.
     this.pagePill = h('button', { class: 'tb-pill', onclick: () => this.overview(), title: 'ページ一覧', 'data-testid': 'page-pill' });
+    this.markBtn = this.btn('bookmark', 'しおり', () => this.toggleMark(), 'mark-btn');
     this.zoomPill = h('button', { class: 'tb-pill', onclick: () => this.editor.fitWidth(), title: '幅に合わせる' });
     this.sheetBtn = this.btn('eyeOff', '赤シート', () => this.toggleSheet(), 'red-sheet-btn');
     tb.append(
       this.pagePill,
+      this.markBtn,
       this.zoomPill,
       this.sheetBtn,
       this.btn('scan', '写真をベクターで取り込む', () => this.scan(), 'scan-btn'),
@@ -335,6 +340,10 @@ export class EditorView implements View {
     this.redoBtn.disabled = !doc?.history.canRedo;
     this.pasteBtn.hidden = !(ed.tool === 'lasso' && hasClipboard());
     if (doc) this.pagePill.textContent = `${ed.currentPage + 1} / ${doc.pages.length}`;
+    const marked = doc?.pages[ed.currentPage]?.mark !== undefined;
+    this.markBtn.classList.toggle('marked', marked);
+    this.markBtn.setAttribute('aria-pressed', String(marked));
+    this.markBtn.hidden = !doc || doc.readOnly;
     const z = Math.round(ed.vp.zoom * 100);
     this.zoomPill.textContent = `${z}%`;
     if (this.lastZoom && z !== this.lastZoom) {
@@ -816,7 +825,7 @@ export class EditorView implements View {
   private duplicatePage(i: number) {
     const doc = this.doc!;
     const src = doc.pages[i];
-    const copy: Page = { ...src, id: uid(), strokes: src.strokes.map((s) => ({ ...s, id: uid() })), items: src.items.map((it) => ({ ...it, id: uid() })), updated: Date.now() };
+    const copy: Page = { ...src, mark: undefined, id: uid(), strokes: src.strokes.map((s) => ({ ...s, id: uid() })), items: src.items.map((it) => ({ ...it, id: uid() })), updated: Date.now() };
     doc.insertPages(i + 1, [copy]);
   }
 
@@ -835,6 +844,22 @@ export class EditorView implements View {
     doc.commit([{ pageId: page.id, before, after: { strokes: [], items: [] } }]);
   }
 
+  /** しおり: bookmark the current page (or remove its bookmark). */
+  private toggleMark() {
+    const doc = this.doc;
+    if (!doc || doc.readOnly) return;
+    const i = this.editor.currentPage;
+    const page = doc.pages[i];
+    if (page.mark === undefined) {
+      doc.setMark(page.id, '');
+      toast(`しおり: ${markLabel(page, i)}（ページ一覧から名前を付けられる）`);
+    } else {
+      doc.setMark(page.id, undefined);
+      toast('しおりを外した');
+    }
+    this.sync();
+  }
+
   private overview() {
     const doc = this.doc;
     if (!doc) return;
@@ -847,6 +872,10 @@ export class EditorView implements View {
       remove: (i) => void this.deletePage(i),
       toggleReview: (p) => this.toggleReview(p),
       isInReview: (p) => this.reviewIds.has(p.id),
+      setMark: (p, label) => {
+        doc.setMark(p.id, label);
+        this.sync();
+      },
     });
   }
 
@@ -900,6 +929,33 @@ export class EditorView implements View {
     this.renderPalette();
     // Position it now; it locks itself once deselected so a stray touch can't move it.
     this.editor.selection.set(page.id, [item.id], { autoLock: true });
+  }
+
+  /** 関数グラフ: ordinary shape strokes + text boxes at the visible centre, selected to place. */
+  private insertGraph(g: Graph) {
+    const doc = this.doc;
+    if (!doc || doc.readOnly) return;
+    const i = this.editor.currentPage;
+    const page = doc.pages[i];
+    const c = this.editor.visibleCenterOn(i);
+    const ox = Math.max(4, Math.min(page.w - g.w - 4, c.x - g.w / 2));
+    const oy = Math.max(4, Math.min(page.h - g.h - 4, c.y - g.h / 2));
+    const strokes: Stroke[] = g.lines.map((l) => {
+      const pts = new Float32Array((l.pts.length / 2) * 3);
+      for (let k = 0; k < l.pts.length / 2; k++) {
+        pts[k * 3] = l.pts[k * 2] + ox;
+        pts[k * 3 + 1] = l.pts[k * 2 + 1] + oy;
+        pts[k * 3 + 2] = 0.5;
+      }
+      return { id: uid(), kind: 'pen', style: 'ballpoint', color: l.color, width: l.width, pts, shape: true };
+    });
+    const items: TextItem[] = g.labels.map((t) => ({ id: uid(), type: 'text', x: t.x + ox, y: t.y + oy, w: t.w, h: t.h, rot: 0, text: t.text, size: t.size, color: t.color }));
+    const before = doc.content(page.id);
+    doc.commit([{ pageId: page.id, before, after: { strokes: [...before.strokes, ...strokes], items: [...before.items, ...items] } }]);
+    this.editor.setTool('lasso');
+    this.renderPalette();
+    this.editor.selection.set(page.id, [...strokes.map((s) => s.id), ...items.map((t) => t.id)]);
+    toast('グラフを挿入。ドラッグで移動・角で拡大縮小');
   }
 
   private async insertPdf() {
@@ -985,6 +1041,7 @@ export class EditorView implements View {
       { label: '画像を挿入', icon: 'image', onClick: () => this.insertImage() },
       { label: 'カメラで撮って挿入', icon: 'camera', onClick: () => this.insertImage(true) },
       { label: 'PDFのページを挿入', icon: 'fileUp', onClick: () => this.insertPdf() },
+      { label: '関数グラフを挿入', icon: 'graph', onClick: () => openGraphDialog((g) => this.insertGraph(g)) },
       null,
       { label: '用紙テンプレートを変更', icon: 'grid', onClick: () => this.changeTemplate() },
       { label: layout === 'vertical' ? '横めくりにする' : '縦スクロールにする', icon: layout === 'vertical' ? 'columns' : 'rows', onClick: () => this.toggleLayout() },
