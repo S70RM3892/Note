@@ -39,8 +39,13 @@ export class TextTool implements Tool {
 }
 
 /** HTML textarea floated over the canvas while a text item is edited. */
+/** One tap while typing: what math and science answers need that a keyboard hides. */
+export const SYMBOLS = ['√', 'π', 'θ', 'α', 'β', 'γ', 'λ', 'ω', 'Σ', '∫', '∞', '±', '×', '÷', '≠', '≦', '≧', '≒', '→', '⇔', '⇒', '∴', '∵', '∈', '⊂', '∩', '∪', '∠', '△', '⊥', '∥', '°', '²', '³', '′'];
+
 export class TextEditor {
   readonly el: HTMLTextAreaElement;
+  /** 記号パレット under the box being edited. */
+  readonly bar: HTMLElement;
   private page: Page | null = null;
   private item: TextItem | null = null;
   private isNew = false;
@@ -57,6 +62,28 @@ export class TextEditor {
       e.stopPropagation();
     });
     host.appendChild(this.el);
+    this.bar = document.createElement('div');
+    this.bar.className = 'ed-symbols';
+    this.bar.hidden = true;
+    this.bar.dataset.testid = 'symbols';
+    for (const sym of SYMBOLS) {
+      const b = document.createElement('button');
+      b.textContent = sym;
+      // Keep the focus (and the caret) in the text box.
+      b.addEventListener('pointerdown', (e) => e.preventDefault());
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => this.insert(sym));
+      this.bar.appendChild(b);
+    }
+    host.appendChild(this.bar);
+  }
+
+  private insert(sym: string) {
+    if (!this.item) return;
+    const t = this.el;
+    t.setRangeText(sym, t.selectionStart, t.selectionEnd, 'end');
+    t.focus();
+    this.layout();
   }
 
   get editingId(): string | null {
@@ -103,6 +130,10 @@ export class TextEditor {
     this.el.style.height = `${(lay.h + it.size * 0.4) * z}px`;
     this.el.style.font = `${it.size * z}px/${LINE_HEIGHT} ${TEXT_FONT}`;
     this.el.style.color = it.color;
+    this.bar.hidden = false;
+    const top = vp.toScreenY(r.y + it.y) + (lay.h + it.size * 0.4) * z + 6;
+    this.bar.style.left = `${Math.max(4, Math.min(vp.width - this.bar.offsetWidth - 4, vp.toScreenX(r.x + it.x)))}px`;
+    this.bar.style.top = `${Math.min(vp.height - 48, top)}px`;
   }
 
   commit() {
@@ -111,6 +142,7 @@ export class TextEditor {
     this.item = null;
     this.page = null;
     this.el.hidden = true;
+    this.bar.hidden = true;
     const text = this.el.value.replace(/\s+$/, '');
     const doc = this.ed.doc!;
     if (!doc.page(page.id)) return;

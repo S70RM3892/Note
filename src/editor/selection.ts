@@ -12,6 +12,7 @@ import {
   type Mat,
 } from '../core/geometry';
 import { uid } from '../core/id';
+import { recognizeShape } from '../core/shapes';
 import type { Item, Pt, Rect, Stroke, TapeItem } from '../core/types';
 import type { Editor } from './editor';
 
@@ -332,6 +333,35 @@ export class SelectionManager {
       items: before.items.map((i) => (this.ids.has(i.id) && i.type === 'text' ? { ...i, color } : i)),
     };
     doc.commit([{ pageId: pid, before, after }]);
+  }
+
+  /** 図形に整える: selected freehand strokes that read as a line, circle, polygon… become that clean shape. */
+  toShapes(): number {
+    if (!this.active) return 0;
+    const doc = this.ed.doc!;
+    const pid = this.pageId!;
+    const before = doc.content(pid);
+    let n = 0;
+    const strokes = before.strokes.map((s) => {
+      if (!this.ids.has(s.id) || s.shape) return s;
+      const raw: Pt[] = [];
+      for (let k = 0; k < s.pts.length; k += 3) raw.push({ x: s.pts[k], y: s.pts[k + 1] });
+      const r = recognizeShape(raw);
+      if (!r) return s;
+      n++;
+      const pts = new Float32Array(r.pts.length * 3);
+      r.pts.forEach((p, i) => {
+        pts[i * 3] = p.x;
+        pts[i * 3 + 1] = p.y;
+        pts[i * 3 + 2] = 0.5;
+      });
+      // Same id: the selection stays on it.
+      return { ...s, pts, shape: true, closed: r.closed || undefined };
+    });
+    if (!n) return 0;
+    doc.commit([{ pageId: pid, before, after: { strokes, items: before.items } }]);
+    this.set(pid, this.ids);
+    return n;
   }
 
   /** Cover the selection with 暗記テープ. */

@@ -1792,3 +1792,33 @@ select.input {
   border-color: rgba(255, 255, 255, 0.2);
   text-align: center;
 }
+
+.ed-symbols {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: 452px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.ed-symbols button {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  font-size: 17px;
+  font-family: 'Noto Sans JP', 'Noto Sans Math', sans-serif;
+}
+.ed-symbols button:active {
+  background: var(--surface-2);
+}
+
+.page-thumb.version {
+  touch-action: auto;
+  padding: 0;
+  background: none;
+}

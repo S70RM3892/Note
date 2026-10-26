@@ -25,6 +25,23 @@ export interface StudyStats {
   exams: { at: number; label: string; planned: number; used: number; laps?: number[] }[];
 }
 
+/** ページの履歴: an earlier state of a page's content. */
+export interface PageVersion {
+  /** `${page}:${snapshot time}` – sorts chronologically per page. */
+  id: string;
+  page: string;
+  nb: string;
+  /** When the page looked like this (its last edit before the snapshot). */
+  at: number;
+  strokes: Page['strokes'];
+  items: Page['items'];
+}
+
+/** A page keeps a snapshot at most this often while it is being edited… */
+export const SNAPSHOT_EVERY = 10 * 60_000;
+/** …and its newest this many. */
+export const SNAPSHOT_KEEP = 30;
+
 export function dayKey(t: number): string {
   const d = new Date(t);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -126,10 +143,57 @@ export class Repo {
     return this.db.get<Page>('pages', id);
   }
 
-  async savePages(pages: Page[], nb?: Notebook) {
-    const put: [('pages' | 'notebooks'), unknown][] = pages.map((p) => ['pages', p]);
+  private snapAt = new Map<string, number>();
+
+  /** Time of the page's newest snapshot (0 = none). */
+  private async lastSnapshot(pageId: string): Promise<number> {
+    let t = this.snapAt.get(pageId);
+    if (t === undefined) {
+      const keys = await this.db.keysByIndex('versions', 'page', pageId);
+      const last = keys[keys.length - 1];
+      t = last ? Number(last.slice(last.lastIndexOf(':') + 1)) || 0 : 0;
+      this.snapAt.set(pageId, t);
+    }
+    return t;
+  }
+
+  /**
+   * Save pages. ページの履歴: before a page is overwritten, its stored state is kept as a version
+   * when the last one is older than SNAPSHOT_EVERY (so the first save of a session keeps how
+   * the page was before it), and always when the save loses most of the page (cleared, or a
+   * big part erased).
+   */
+  async savePages(pages: Page[], nb?: Notebook, now = Date.now()) {
+    const old = await this.db.getMany<Page>('pages', pages.map((p) => p.id));
+    const put: [('pages' | 'notebooks' | 'versions'), unknown][] = pages.map((p) => ['pages', p]);
     if (nb) put.push(['notebooks', nb]);
+    const snapped: string[] = [];
+    for (let i = 0; i < pages.length; i++) {
+      const o = old[i];
+      if (!o || (!o.strokes.length && !o.items.length)) continue;
+      const before = o.strokes.length + o.items.length;
+      const after = pages[i].strokes.length + pages[i].items.length;
+      const destructive = before >= 3 && after < before / 2;
+      let last = await this.lastSnapshot(o.id);
+      // Never snapshotted and written just now: this is the session that started it, not older
+      // work; count its interval from that first edit.
+      if (!last && now - o.updated < SNAPSHOT_EVERY) this.snapAt.set(o.id, (last = o.updated));
+      if (!destructive && now - last < SNAPSHOT_EVERY) continue;
+      const v: PageVersion = { id: `${o.id}:${now}`, page: o.id, nb: o.nb, at: o.updated || now, strokes: o.strokes, items: o.items };
+      put.push(['versions', v]);
+      snapped.push(o.id);
+    }
     await this.db.write({ put });
+    for (const id of snapped) {
+      this.snapAt.set(id, now);
+      const keys = await this.db.keysByIndex('versions', 'page', id);
+      if (keys.length > SNAPSHOT_KEEP) await this.db.write({ del: keys.slice(0, keys.length - SNAPSHOT_KEEP).map((k) => ['versions', k] as ['versions', string]) });
+    }
+  }
+
+  /** ページの履歴, newest first. */
+  async listVersions(pageId: string): Promise<PageVersion[]> {
+    return (await this.db.getAllByIndex<PageVersion>('versions', 'page', pageId)).sort((a, b) => b.at - a.at || (a.id < b.id ? 1 : -1));
   }
 
   async trashNotebook(nb: Notebook) {
@@ -145,11 +209,13 @@ export class Repo {
   async deleteNotebook(id: string) {
     const pageIds = await this.db.keysByIndex('pages', 'nb', id);
     const reviewIds = await this.db.keysByIndex('reviews', 'nb', id);
+    const versionIds = await this.db.keysByIndex('versions', 'nb', id);
     await this.db.write({
       del: [
         ['notebooks', id],
         ...pageIds.map((k) => ['pages', k] as ['pages', string]),
         ...reviewIds.map((k) => ['reviews', k] as ['reviews', string]),
+        ...versionIds.map((k) => ['versions', k] as ['versions', string]),
       ],
     });
     await this.collectAssets();

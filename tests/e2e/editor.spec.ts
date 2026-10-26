@@ -603,3 +603,72 @@ test('S Pen hover shows the pen tip; writing at the bottom of the last page adds
   await page.getByTestId('redo').click();
   expect((await docInfo(page)).pages).toHaveLength(2);
 });
+
+test('記号パレット while typing; 図形に整える on a lasso selection', async ({ page }) => {
+  await newNotebook(page);
+  await page.getByTestId('tool-text').click();
+  await pen(page, [
+    [400, 300],
+    [400, 300],
+  ]);
+  await page.keyboard.type('x');
+  const bar = page.getByTestId('symbols');
+  await expect(bar).toBeVisible();
+  await bar.getByRole('button', { name: '≦', exact: true }).click();
+  await page.keyboard.type('2');
+  await bar.getByRole('button', { name: 'π', exact: true }).click();
+  await expect(page.locator('.ed-textedit')).toBeFocused();
+  await page.getByTestId('tool-pen').click();
+  await expect(bar).toBeHidden();
+  expect((await docInfo(page)).pages[0].items.map((i) => i.text)).toEqual(['x≦2π']);
+
+  // A wobbly hand-drawn circle and a wavy line → a clean circle and a straight line.
+  const circle = Array.from({ length: 41 }, (_, i) => {
+    const t = (i / 40) * Math.PI * 2;
+    return [600 + 70 * Math.cos(t) + (i % 3) - 1, 450 + 70 * Math.sin(t) + ((i * 7) % 3) - 1, 0.5] as [number, number, number];
+  });
+  await pen(page, circle);
+  await pen(page, line(300, 600, 700, 610, 30).map(([x, y, p], i) => [x, y + (i % 2 ? 2 : -2), p] as [number, number, number]));
+  await page.getByTestId('tool-lasso').click();
+  await pen(page, [
+    [250, 330],
+    [800, 330],
+    [800, 680],
+    [250, 680],
+    [250, 330],
+  ]);
+  await page.getByTestId('sel-shapes').click();
+  const strokes = (await docInfo(page)).pages[0].strokes;
+  expect(strokes.map((s) => s.shape)).toEqual([true, true]);
+  expect(strokes[1].n).toBe(2); // the line is now two points
+  await page.getByTestId('undo').click();
+  expect((await docInfo(page)).pages[0].strokes.map((s) => s.shape)).toEqual([false, false]);
+});
+
+test('ページの履歴: clearing a page can be undone from its history after reopening', async ({ page }) => {
+  await newNotebook(page, '履歴');
+  for (const y of [250, 330, 410]) await pen(page, line(300, y, 700, y));
+  await flush(page);
+  // Clear the page (a destructive save keeps the state before it), then leave and come back.
+  await page.getByTestId('tool-eraser').click();
+  await page.getByTestId('tool-eraser').click(); // second tap: eraser options
+  await page.getByRole('button', { name: 'このページを全消去' }).click();
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(0);
+  await flush(page);
+  const url = page.url();
+  await page.goto('/');
+  await page.goto(url);
+  await page.waitForFunction(() => !!(window as any).sumi?.view?.doc);
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(0);
+  await page.getByTestId('more').click();
+  await page.getByRole('menuitem', { name: 'このページの履歴（復元）' }).click();
+  const versions = page.getByTestId('versions').locator('.version');
+  await expect(versions).toHaveCount(1);
+  await expect(versions.first()).toContainText('線3');
+  await page.screenshot({ path: 'test-results/page-history.png' });
+  await versions.first().click();
+  await page.getByRole('button', { name: '戻す', exact: true }).click();
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(3);
+  await page.getByTestId('undo').click();
+  expect((await docInfo(page)).pages[0].strokes).toHaveLength(0);
+});

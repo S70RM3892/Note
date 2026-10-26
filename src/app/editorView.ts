@@ -614,6 +614,10 @@ export class EditorView implements View {
         const close = popover(this.selMenu, wrap);
       }),
       b('tape', 'テープで隠す', () => sel.toTape(), 'sel-tape'),
+      b('square', '図形に整える', () => {
+        const n = sel.toShapes();
+        toast(n ? `${n}本を図形にした` : '図形として読めなかった（直線・円・楕円・多角形・折れ線）');
+      }, 'sel-shapes'),
       b('lock', '固定', () => (sel.lock(), toast('固定した。投げ縄・消しゴムで動かない')), 'sel-lock'),
       b('brain', 'まちがいノートへ', () => void this.selectionToMistakes(), 'sel-mistake'),
     );
@@ -859,6 +863,42 @@ export class EditorView implements View {
     toast('次のページを追加した');
   }
 
+  /** ページの履歴: earlier states of the page (kept on save), one tap to bring one back (undoable). */
+  private async pageHistory(page: Page) {
+    const doc = this.doc;
+    if (!doc) return;
+    const versions = await this.app.repo.listVersions(page.id);
+    if (!versions.length) return toast('まだ履歴がない（書いて10分ごと・大きく消したときに残る）');
+    const when = (t: number) => {
+      const d = new Date(t);
+      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
+    const grid = h(
+      'div',
+      { class: 'pages-grid', 'data-testid': 'versions' },
+      versions.map((v) =>
+        h(
+          'button',
+          {
+            class: 'page-thumb version',
+            onclick: async () => {
+              if (!(await confirmDialog('この時点に戻す', `${when(v.at)} の状態にする。今の内容は「元に戻す」で取り戻せる。`, '戻す'))) return;
+              m.close();
+              const pid = page.id;
+              if (!doc.page(pid)) return;
+              doc.commit([{ pageId: pid, before: doc.content(pid), after: { strokes: v.strokes, items: v.items } }]);
+              this.editor.goToPage(doc.indexOf(pid));
+              toast(`${when(v.at)} の状態に戻した`);
+            },
+          },
+          thumbnail({ ...page, strokes: v.strokes, items: v.items }, this.app.assets, 150),
+          h('div', { class: 'num' }, when(v.at), h('small', { class: 'muted' }, ` 線${v.strokes.length}`)),
+        ),
+      ),
+    );
+    const m = modal('このページの履歴', h('div', null, h('p', { class: 'muted', style: 'margin:0 0 12px;font-size:13px' }, '書いている間10分ごとと、大きく消したときに残る（1ページ30個まで）。タップでその時点に戻す。'), grid), { wide: true });
+  }
+
   /** しおり: bookmark the current page (or remove its bookmark). */
   private toggleMark() {
     const doc = this.doc;
@@ -888,6 +928,7 @@ export class EditorView implements View {
       toggleReview: (p) => this.toggleReview(p),
       isInReview: (p) => this.reviewIds.has(p.id),
       spent: (p) => this.app.stats.pageTime(p.id),
+      history: (p) => void this.pageHistory(p),
       setMark: (p, label) => {
         doc.setMark(p.id, label);
         this.sync();
@@ -1063,6 +1104,7 @@ export class EditorView implements View {
       { label: layout === 'vertical' ? '横めくりにする' : '縦スクロールにする', icon: layout === 'vertical' ? 'columns' : 'rows', onClick: () => this.toggleLayout() },
       { label: this.reviewIds.has(page.id) ? 'このページを復習から外す' : 'このページを復習に追加', icon: 'brain', onClick: () => this.toggleReview(page) },
       { label: 'このページの固定をすべて解除', icon: 'unlock', onClick: () => this.unlockPage(page) },
+      { label: 'このページの履歴（復元）', icon: 'reset', onClick: () => void this.pageHistory(page) },
       { label: '全テープを隠す', icon: 'eyeOff', onClick: () => this.editor.setAllTapes(true) },
       { label: '全テープをめくる', icon: 'eye', onClick: () => this.editor.setAllTapes(false) },
       null,

@@ -461,7 +461,7 @@ export class Editor {
   private onDown(e: PointerEvent) {
     if (!this.doc) return;
     // Taps inside the text box being edited belong to the text box (caret, selection).
-    if ((e.target as HTMLElement | null)?.closest?.('.ed-textedit')) return;
+    if ((e.target as HTMLElement | null)?.closest?.('.ed-textedit, .ed-symbols')) return;
     const rect = this.el.getBoundingClientRect();
     const now = performance.now();
     if (e.pointerType === 'pen') this.notePen();

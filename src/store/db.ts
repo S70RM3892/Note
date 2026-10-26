@@ -1,8 +1,9 @@
 /** Tiny promise wrapper around IndexedDB. */
 
-export type StoreName = 'notebooks' | 'pages' | 'assets' | 'folders' | 'reviews' | 'kv';
+export type StoreName = 'notebooks' | 'pages' | 'assets' | 'folders' | 'reviews' | 'kv' | 'versions';
 
-const VERSION = 1;
+// 2: page history (versions).
+const VERSION = 2;
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -33,6 +34,11 @@ export class DB {
         if (!db.objectStoreNames.contains('folders')) db.createObjectStore('folders', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('reviews')) db.createObjectStore('reviews', { keyPath: 'id' }).createIndex('nb', 'nb');
         if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv', { keyPath: 'k' });
+        if (!db.objectStoreNames.contains('versions')) {
+          const v = db.createObjectStore('versions', { keyPath: 'id' });
+          v.createIndex('page', 'page');
+          v.createIndex('nb', 'nb');
+        }
       };
       r.onsuccess = () => {
         const db = r.result;
