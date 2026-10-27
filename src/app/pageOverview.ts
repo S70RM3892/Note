@@ -1,4 +1,5 @@
 import type { Page } from '../core/types';
+import { pageDays, pagesByDate, RESULT_MARK } from '../core/problems';
 import type { EditorDoc } from '../editor/doc';
 import type { Editor } from '../editor/editor';
 import { thumbnail } from '../pdf/export';
@@ -33,7 +34,45 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
   const grid = h('div', { class: 'pages-grid' });
   const toc = h('div', { class: 'toc', 'data-testid': 'toc' });
   const marks = h('div', { class: 'toc', 'data-testid': 'marks' });
-  const m = modal(`ページ一覧（${doc.pages.length}）`, h('div', null, marks, toc, grid), { wide: true });
+  // 日付順: date → pages written that day (newest or oldest day first).
+  let sort: 'page' | 'new' | 'old' = 'page';
+  try {
+    const v = localStorage.getItem('sumi.pageSort');
+    if (v === 'new' || v === 'old') sort = v;
+  } catch {
+    /* ignore */
+  }
+  const sorter = h(
+    'div',
+    { class: 'chips', style: 'margin-bottom:10px', 'data-testid': 'page-sort' },
+    (
+      [
+        ['page', 'ページ順'],
+        ['new', '日付（新しい順）'],
+        ['old', '日付（古い順）'],
+      ] as const
+    ).map(([id, label]) =>
+      h(
+        'button',
+        {
+          class: 'chip' + (sort === id ? ' on' : ''),
+          'data-testid': `page-sort-${id}`,
+          onclick: (e: Event) => {
+            sort = id;
+            try {
+              localStorage.setItem('sumi.pageSort', id);
+            } catch {
+              /* ignore */
+            }
+            sorter.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === e.currentTarget));
+            render();
+          },
+        },
+        label,
+      ),
+    ),
+  );
+  const m = modal(`ページ一覧（${doc.pages.length}）`, h('div', null, sorter, marks, toc, grid), { wide: true });
   const current = editor.currentPage;
   void renderToc(toc, editor, doc, () => m.close());
 
@@ -74,10 +113,30 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
     marks.replaceChildren(h('div', { class: 'field-label' }, 'しおり'), list);
   };
 
+  const dayLabel = (d: string) => {
+    const [y, mo, da] = d.split('-').map(Number);
+    return `${mo}/${da}(${'日月火水木金土'[new Date(y, mo - 1, da).getDay()]})`;
+  };
+
   const render = () => {
     renderMarks();
     grid.replaceChildren();
-    doc.pages.forEach((page, i) => {
+    if (sort !== 'page') {
+      grid.classList.add('by-date');
+      const byDate = pagesByDate(doc.pages, sort);
+      if (!byDate.length) grid.append(h('p', { class: 'muted' }, 'まだ何も書いていない。'));
+      for (const { day, pages } of byDate) {
+        grid.append(h('div', { class: 'date-head', 'data-testid': 'date-head' }, dayLabel(day), h('small', { class: 'muted' }, ` ${pages.length}ページ`)));
+        for (const i of pages) grid.append(thumb(doc.pages[i], i, false));
+      }
+      return;
+    }
+    grid.classList.remove('by-date');
+    doc.pages.forEach((page, i) => grid.appendChild(thumb(page, i, true)));
+  };
+
+  const thumb = (page: Page, i: number, draggable: boolean): HTMLElement => {
+    {
       const cv = thumbnail(page, editor.assets, 150);
       const more = h('button', { class: 'more', 'aria-label': 'ページのメニュー' }, icon('dots', 16));
       const cell = h(
@@ -87,7 +146,8 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
         h(
           'div',
           { class: 'num' },
-          `${i + 1}`,
+          page.problem !== undefined ? `${page.problem}${page.result ? ' ' + RESULT_MARK[page.result] : ''}` : `${i + 1}`,
+          pageDays(page).length ? h('span', { class: 'page-day', 'data-testid': 'page-day' }, dayLabel(pageDays(page).at(-1)!)) : null,
           actions.isInReview(page) ? h('span', { class: 'badge' }, icon('brain', 11), '復習') : null,
           actions.spent(page) >= 60 ? h('span', { class: 'spent', title: 'このページに書いていた時間' }, icon('timer', 11), formatDuration(actions.spent(page))) : null,
         ),
@@ -113,13 +173,13 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
           { label: '削除', icon: 'trash', danger: true, disabled: doc.pages.length <= 1, onClick: () => (actions.remove(i), render()) },
         ]);
       });
-      attachDrag(cell, i);
-      grid.appendChild(cell);
-    });
+      attachDrag(cell, i, draggable);
+      return cell;
+    }
   };
 
   // Long-press-free reordering: drag a thumbnail; tap to jump.
-  const attachDrag = (cell: HTMLElement, index: number) => {
+  const attachDrag = (cell: HTMLElement, index: number, draggable: boolean) => {
     let start: { x: number; y: number } | null = null;
     let dragging = false;
     let target = -1;
@@ -130,7 +190,7 @@ export function openPageOverview(editor: Editor, doc: EditorDoc, actions: PageOv
     });
     cell.addEventListener('pointermove', (e) => {
       if (!start) return;
-      if (!dragging && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) {
+      if (!dragging && draggable && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) {
         dragging = true;
         cell.classList.add('dragging');
       }

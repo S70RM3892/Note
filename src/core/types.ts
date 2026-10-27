@@ -107,6 +107,12 @@ export interface Page {
   mark?: string;
   /** 解き直し: the handwriting of the previous attempt, set aside when the page was cleared to try again. */
   prev?: { at: number; strokes: Stroke[] };
+  /** 問題ごとのノート: the problem this page belongs to ("問12"); consecutive pages with the same label are one problem. */
+  problem?: string;
+  /** ○ / △ / × for the problem (kept on its first page). */
+  result?: ProblemResult;
+  /** Days something was written on the page (YYYY-MM-DD, oldest first). */
+  days?: string[];
   strokes: Stroke[];
   items: Item[];
   updated: number;
@@ -120,6 +126,8 @@ export interface ReviewRecord {
 }
 
 export type Layout = 'vertical' | 'horizontal';
+
+export type ProblemResult = 'o' | 'd' | 'x';
 
 export interface Notebook {
   id: string;
@@ -136,6 +144,10 @@ export interface Notebook {
   layout?: Layout;
   /** Defaults for newly added pages. */
   paper: { w: number; h: number; bg: PageBackground };
+  /** 'problems': one board (one or more pages) per problem of a 問題集. */
+  kind?: 'problems';
+  /** 問題ごとのノート: counts of ○△× and problems, for the library. */
+  problemSummary?: { o: number; d: number; x: number; total: number };
   trashed?: number;
 }
 

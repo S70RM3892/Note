@@ -33,6 +33,10 @@ import { openScanDialog } from './scanDialog';
 import { openSettings } from './settingsView';
 import { MISTAKE_KINDS, type MistakeKind } from '../hub/mistakes';
 import { canSpeak, speak } from '../hub/speech';
+import { addDay, problemAt, problemGroups, resultCounts, RESULT_MARK } from '../core/problems';
+import type { ProblemResult } from '../core/types';
+import { headerItem, openProblemPicker } from './problems';
+import { dayKey } from '../store/repo';
 
 /** Draw a sample wave stroke of a pen preset onto `cv` (CSS size W×H). */
 function drawSample(cv: HTMLCanvasElement, W: number, H: number, p: PenPreset, kind: 'pen' | 'highlighter', gamma: number, transparent = false) {
@@ -93,6 +97,8 @@ export class EditorView implements View {
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private pagePill!: HTMLElement;
+  /** 問題ごとのノート: ○△× for the problem on screen. */
+  private resultBar!: HTMLElement;
   private markBtn!: HTMLButtonElement;
   private zoomPill!: HTMLElement;
   private titleEl!: HTMLElement;
@@ -312,10 +318,16 @@ export class EditorView implements View {
     // The page pill doubles as the ページ一覧 button.
     this.pagePill = h('button', { class: 'tb-pill', onclick: () => this.overview(), title: 'ページ一覧', 'data-testid': 'page-pill' });
     this.markBtn = this.btn('bookmark', 'しおり', () => this.toggleMark(), 'mark-btn');
+    this.resultBar = h(
+      'span',
+      { class: 'result-bar', hidden: true },
+      (['o', 'd', 'x'] as ProblemResult[]).map((r) => h('button', { class: `tb-pill result-${r}`, title: { o: '解けた', d: 'あやしい', x: '解けなかった' }[r], 'data-testid': `result-${r}`, onclick: () => this.setResult(r) }, RESULT_MARK[r])),
+    );
     this.zoomPill = h('button', { class: 'tb-pill', onclick: () => this.editor.fitWidth(), title: '幅に合わせる' });
     this.sheetBtn = this.btn('eyeOff', '赤シート', () => this.toggleSheet(), 'red-sheet-btn');
     tb.append(
       this.pagePill,
+      this.resultBar,
       this.markBtn,
       this.zoomPill,
       this.sheetBtn,
@@ -344,7 +356,10 @@ export class EditorView implements View {
     this.undoBtn.disabled = !doc?.history.canUndo;
     this.redoBtn.disabled = !doc?.history.canRedo;
     this.pasteBtn.hidden = !(ed.tool === 'lasso' && hasClipboard());
-    if (doc) this.pagePill.textContent = `${ed.currentPage + 1} / ${doc.pages.length}`;
+    const prob = doc ? problemAt(doc.pages, ed.currentPage) : null;
+    if (doc) this.pagePill.textContent = prob ? `${prob.label}（${prob.index + 1}/${prob.total}）` : `${ed.currentPage + 1} / ${doc.pages.length}`;
+    this.resultBar.hidden = !prob || !!doc?.readOnly;
+    for (const b of this.resultBar.children) b.classList.toggle('on', !!prob?.result && b.classList.contains(`result-${prob.result}`));
     const marked = doc?.pages[ed.currentPage]?.mark !== undefined;
     this.markBtn.classList.toggle('marked', marked);
     this.markBtn.setAttribute('aria-pressed', String(marked));
@@ -878,16 +893,19 @@ export class EditorView implements View {
     const doc = this.doc;
     if (!doc) return;
     const i = at ?? this.editor.currentPage + 1;
-    const p = this.newPageLike(doc.pages[Math.max(0, i - 1)]);
+    const prev = doc.pages[Math.max(0, i - 1)];
+    const p = this.newPageLike(prev);
+    // 問題ごとのノート: the new page continues the problem it follows.
+    if (prev?.problem !== undefined && at === undefined) p.problem = prev.problem;
     doc.insertPages(i, [p]);
     this.editor.goToPage(i);
-    toast(`${i + 1}ページ目を追加`);
+    toast(p.problem !== undefined ? `${p.problem} にページを足した` : `${i + 1}ページ目を追加`);
   }
 
   private duplicatePage(i: number) {
     const doc = this.doc!;
     const src = doc.pages[i];
-    const copy: Page = { ...src, mark: undefined, id: uid(), strokes: src.strokes.map((s) => ({ ...s, id: uid() })), items: src.items.map((it) => ({ ...it, id: uid() })), updated: Date.now() };
+    const copy: Page = { ...src, mark: undefined, result: undefined, days: undefined, id: uid(), strokes: src.strokes.map((s) => ({ ...s, id: uid() })), items: src.items.map((it) => ({ ...it, id: uid() })), updated: Date.now() };
     doc.insertPages(i + 1, [copy]);
   }
 
@@ -926,17 +944,75 @@ export class EditorView implements View {
     return true;
   }
 
-  /** Writing into the bottom of the last page: the next page is there before it's needed. */
+  /**
+   * Writing into the bottom of the last page: the next page is there before it's needed. In a
+   * 問題ごとのノート, the bottom of a problem's last page gets that problem a next page.
+   */
   private maybeAppendPage(pageId: string, s: Stroke) {
     const doc = this.doc;
     if (!doc || doc.readOnly || this.review || !this.app.settings.get().autoAppendPage) return;
-    const last = doc.pages[doc.pages.length - 1];
-    if (last.id !== pageId || last.pdf) return;
+    const i = doc.indexOf(pageId);
+    const page = doc.pages[i];
+    if (!page || page.pdf) return;
+    const next = doc.pages[i + 1];
+    const endOfProblem = page.problem !== undefined && next?.problem !== page.problem;
+    if (next && !endOfProblem) return;
     let bottom = -Infinity;
     for (let k = 1; k < s.pts.length; k += 3) bottom = Math.max(bottom, s.pts[k]);
-    if (bottom < last.h * 0.82) return;
-    doc.appendPageToLastStep(this.newPageLike(last));
-    toast('次のページを追加した');
+    if (bottom < page.h * 0.82) return;
+    const p = this.newPageLike(page);
+    if (page.problem !== undefined) p.problem = page.problem;
+    doc.insertPageToLastStep(i + 1, p);
+    toast(page.problem !== undefined ? `${page.problem} の次のページを足した` : '次のページを追加した');
+  }
+
+  /** 日付: the page was written on today (for the page list by date). */
+  noteWritten(pageId: string) {
+    const page = this.doc?.page(pageId);
+    if (page && !this.doc!.readOnly && addDay(page, dayKey(Date.now()))) this.doc!.markDirty(pageId);
+  }
+
+  /** 問題ごとのノート: ○△× for the problem on screen (again to clear). △ and × put it in the review. */
+  private async setResult(r: ProblemResult) {
+    const doc = this.doc;
+    if (!doc || doc.readOnly) return;
+    const pr = problemAt(doc.pages, this.editor.currentPage);
+    if (!pr) return;
+    const next = pr.result === r ? undefined : r;
+    for (let k = pr.first; k <= pr.last; k++) {
+      const p = doc.pages[k];
+      const want = k === pr.first ? next : undefined;
+      if (p.result !== want) {
+        if (want) p.result = want;
+        else delete p.result;
+        doc.markDirty(p.id);
+      }
+    }
+    const c = resultCounts(problemGroups(doc.pages));
+    doc.nb.problemSummary = { o: c.o, d: c.d, x: c.x, total: c.total };
+    doc.markNotebookDirty();
+    const first = doc.pages[pr.first];
+    if ((next === 'x' || next === 'd') && !this.reviewIds.has(first.id)) {
+      await this.app.repo.saveReview({ id: first.id, nb: first.nb, state: newReview(Date.now()) });
+      this.reviewIds.add(first.id);
+      toast(`${pr.label}：${RESULT_MARK[next]}。復習に入れた（明日出る）`, 2200);
+    } else toast(next ? `${pr.label}：${RESULT_MARK[next]}` : `${pr.label}：記録を消した`, 1400);
+    this.sync();
+  }
+
+  /** 問題ごとのノート: one more problem at the end. */
+  private async addProblem() {
+    const doc = this.doc!;
+    const last = doc.pages[doc.pages.length - 1];
+    const m = /^(\D*)(\d+)(\D*)$/.exec(last.problem ?? '');
+    const guess = m ? `${m[1]}${Number(m[2]) + 1}${m[3]}` : '';
+    const label = await promptDialog('追加する問題の見出し', guess, '例: 問121');
+    if (!label) return;
+    const p = this.newPageLike(last);
+    p.problem = label;
+    p.items.push(headerItem(p, label));
+    doc.insertPages(doc.pages.length, [p]);
+    this.editor.goToPage(doc.pages.length - 1);
   }
 
   /** Copy or move a page to the end of another notebook. */
@@ -1047,6 +1123,23 @@ export class EditorView implements View {
   }
 
   private overview() {
+    const doc = this.doc;
+    if (!doc) return;
+    if (doc.nb.kind === 'problems') {
+      openProblemPicker({
+        pages: doc.pages,
+        current: this.editor.currentPage,
+        inReview: (id) => this.reviewIds.has(id),
+        spent: (id) => this.app.stats.pageTime(id),
+        go: (i) => this.editor.goToPage(i),
+        overview: () => this.pageOverview(),
+      });
+      return;
+    }
+    this.pageOverview();
+  }
+
+  private pageOverview() {
     const doc = this.doc;
     if (!doc) return;
     openPageOverview(this.editor, doc, {
@@ -1250,6 +1343,12 @@ export class EditorView implements View {
           this.stampText(`${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}(${'日月火水木金土'[d.getDay()]})`, 'right');
         },
       },
+      ...(doc.nb.kind === 'problems' && !doc.readOnly
+        ? [
+            { label: 'この問題にページを足す', icon: 'filePlus' as const, onClick: () => this.addPage() },
+            { label: '問題を最後に追加', icon: 'plus' as const, onClick: () => void this.addProblem() },
+          ]
+        : []),
       { label: '質問リストに入れる', icon: 'question', onClick: () => void this.addQuestion(page) },
       { label: '全テープを隠す', icon: 'eyeOff', onClick: () => this.editor.setAllTapes(true) },
       { label: '全テープをめくる', icon: 'eye', onClick: () => this.editor.setAllTapes(false) },

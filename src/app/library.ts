@@ -595,7 +595,16 @@ export class LibraryView implements View {
           { class: 'nb', 'data-testid': 'notebook', onclick: () => this.app.go(`#/nb/${nb.id}`) },
           cover,
           h('div', { class: 'nb-title' }, nb.title),
-          h('div', { class: 'nb-meta' }, formatDate(Math.max(nb.updated, nb.opened)), `· ${nb.pages.length}p`, folder ? `· ${folder.name}` : ''),
+          h(
+            'div',
+            { class: 'nb-meta' },
+            formatDate(Math.max(nb.updated, nb.opened)),
+            nb.problemSummary ? `· ${nb.problemSummary.total}問` : `· ${nb.pages.length}p`,
+            folder ? `· ${folder.name}` : '',
+          ),
+          nb.problemSummary && nb.problemSummary.o + nb.problemSummary.d + nb.problemSummary.x
+            ? h('div', { class: 'nb-meta', 'data-testid': 'nb-results' }, `○${nb.problemSummary.o} △${nb.problemSummary.d} ×${nb.problemSummary.x}`)
+            : null,
         ),
       );
     }

@@ -93,6 +93,7 @@ export class App {
   private onWriting(pageId?: string) {
     const now = Date.now();
     this.stats.activity(now, this.editor?.doc?.nb.id, pageId);
+    if (pageId && this.view instanceof EditorView) this.view.noteWritten(pageId);
     const nudge = this.breaks.activity(now);
     if (!nudge || !this.hub.get().prefs.eyeBreaks || this.timer.running) return;
     if (nudge === 'micro') toast('30分続けて書いている。1〜2分、画面から目を離して遠くを見ろ。', 4000);

@@ -13,6 +13,10 @@ export interface NewNotebookOptions {
   bg?: PageBackground;
   cover?: string;
   pages?: number;
+  /** 問題ごとのノート: one page per label ("問1", "問2" …). */
+  problems?: string[];
+  /** Finish each new page (e.g. put the problem's heading on it). */
+  pageInit?: (page: Page, index: number) => void;
 }
 
 export interface StudyStats {
@@ -117,9 +121,16 @@ export class Repo {
       cover: o.cover ?? COVER_COLORS[Math.floor(Math.random() * COVER_COLORS.length)],
       paper: { w: size.w, h: size.h, bg: o.bg ?? { tpl: 'grid', spacing: 5, color: '#ffffff' } },
     };
+    if (o.problems?.length) nb.kind = 'problems';
     const pages: Page[] = [];
-    for (let i = 0; i < (o.pages ?? 1); i++) pages.push(this.newPage(nb));
+    const n = o.problems?.length || (o.pages ?? 1);
+    for (let i = 0; i < n; i++) {
+      const p = this.newPage(nb, o.problems ? { problem: o.problems[i] } : {});
+      o.pageInit?.(p, i);
+      pages.push(p);
+    }
     nb.pages = pages.map((p) => p.id);
+    if (nb.kind) nb.problemSummary = { o: 0, d: 0, x: 0, total: n };
     await this.db.write({ put: [['notebooks', nb], ...pages.map((p) => ['pages', p] as ['pages', Page])] });
     return { nb, pages };
   }

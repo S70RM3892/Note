@@ -155,8 +155,14 @@ export class EditorDoc {
 
   /** Append a page as part of the last undo step (added because of the stroke just written). */
   appendPageToLastStep(page: Page) {
+    this.insertPageToLastStep(this.pages.length, page);
+  }
+
+  /** The same, at `index` (the next page of a problem in a 問題ごとのノート). */
+  insertPageToLastStep(index: number, page: Page) {
     const before = this.pages.slice();
-    const after = [...before, page];
+    const after = before.slice();
+    after.splice(index, 0, page);
     this.applyOrder(after);
     this.history.amend(this.structureCommand(before, after));
   }
