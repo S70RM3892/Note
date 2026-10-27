@@ -1,8 +1,6 @@
 /**
- * 体調: 睡眠記録, カフェイン, 目の休憩.
+ * 体調: 睡眠記録, 目の休憩.
  *  - 睡眠: 厚生労働省「健康づくりのための睡眠ガイド 2023」— 中学・高校生は8〜10時間、週末も普段と同じ時刻に起きる
- *  - カフェイン: 同ガイド — 1日400mgまで（成人）、日本人の血中半減期3〜7時間、夕方以降の摂取は睡眠に影響しやすい
- *    含有量: 食品安全委員会「食品中のカフェイン」ファクトシート（100mlあたり）
  *  - 目の休憩: 厚生労働省「情報機器作業における労働衛生管理のためのガイドライン」— 一連続作業は1時間以内、
  *    次の作業までに10〜15分の休止、途中に1〜2回の小休止
  */
@@ -10,7 +8,6 @@ import { dayKey } from '../store/repo';
 
 export const HEALTH_SOURCES = {
   sleepGuide: 'https://www.mhlw.go.jp/content/001305530.pdf',
-  caffeine: 'https://www.fsc.go.jp/factsheets/index.data/factsheets_caffeine.pdf',
   vdt: 'https://www.mhlw.go.jp/content/000539604.pdf',
 };
 
@@ -95,52 +92,6 @@ export function sleepSummary(entries: SleepEntry[], now = Date.now(), n = 7): Sl
 export function clock(min: number): string {
   const m = ((Math.round(min) % 1440) + 1440) % 1440;
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
-}
-
-// ---------- カフェイン ----------
-
-export interface CaffeineEntry {
-  at: number;
-  mg: number;
-  label: string;
-}
-
-/** mg per 100 ml (食品安全委員会ファクトシート) and a usual cup. */
-export const CAFFEINE_DRINKS = [
-  { label: 'コーヒー', per100: 60, ml: 150 },
-  { label: 'インスタントコーヒー', per100: 57, ml: 150 },
-  { label: '紅茶', per100: 30, ml: 150 },
-  { label: 'せん茶', per100: 20, ml: 150 },
-  { label: 'ウーロン茶', per100: 20, ml: 150 },
-  { label: '玉露', per100: 160, ml: 60 },
-];
-
-export const CAFFEINE_DAILY_MAX = 400;
-export const CAFFEINE_HALF_LIFE = { typical: 5, min: 3, max: 7 };
-/** 「夕方以降」— here from 16:00. */
-export const CAFFEINE_EVENING = 16;
-
-/** Caffeine still in the body at `t` (mg), each intake halving every `halfLifeH` hours. */
-export function caffeineAt(entries: CaffeineEntry[], t: number, halfLifeH: number = CAFFEINE_HALF_LIFE.typical): number {
-  return entries.reduce((s, e) => (e.at <= t ? s + e.mg * 0.5 ** ((t - e.at) / (halfLifeH * 3_600_000)) : s), 0);
-}
-
-export function caffeineToday(entries: CaffeineEntry[], now = Date.now()): { total: number; evening: number } {
-  const today = dayKey(now);
-  const list = entries.filter((e) => dayKey(e.at) === today);
-  return {
-    total: list.reduce((s, e) => s + e.mg, 0),
-    evening: list.filter((e) => new Date(e.at).getHours() >= CAFFEINE_EVENING).reduce((s, e) => s + e.mg, 0),
-  };
-}
-
-/** The next time `hhmm` comes (today, or tomorrow when it has passed). */
-export function nextClock(hhmm: string, now = Date.now()): number {
-  const [h, m] = hhmm.split(':').map(Number);
-  const d = new Date(now);
-  d.setHours(h, m, 0, 0);
-  if (d.getTime() <= now) d.setDate(d.getDate() + 1);
-  return d.getTime();
 }
 
 // ---------- 目の休憩 ----------

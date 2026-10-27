@@ -19,7 +19,7 @@ test('受験ハブ from the library; 合格点シミュレーター converts 共
   await page.goto('/');
   await page.getByTestId('open-hub').click();
   await expect(page.getByTestId('hub')).toBeVisible();
-  await expect(page.locator('.hub-tile')).toHaveCount(19); // Android 連携 only in the APK
+  await expect(page.locator('.hub-tile')).toHaveCount(18); // Android 連携 only in the APK
   await page.getByTestId('hub-tile-score').click();
   const scores: [string, number][] = [
     ['kokugo', 160],
@@ -186,7 +186,7 @@ test('まちがいノート asks why; ミス分析 counts it. 質問リスト fr
   await page.waitForFunction(() => (window as any).sumi?.view?.doc?.nb?.title === '数学 演習');
 });
 
-test('睡眠: the morning question in the library, the week against 8〜10 hours; カフェイン at bedtime', async ({ page }) => {
+test('睡眠: the morning question in the library, the week against 8〜10 hours', async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-10-26T07:30:00+09:00'));
   await page.goto('/');
   await expect(page.getByTestId('ask-sleep')).toBeVisible();
@@ -199,11 +199,6 @@ test('睡眠: the morning question in the library, the week against 8〜10 hours
   await expect(page.getByTestId('sleep-summary')).toContainText('6.0');
   await expect(page.getByTestId('sleep-summary')).toContainText('8〜10時間の夜：0 / 1');
 
-  await openTool(page, 'caffeine');
-  await page.getByTestId('caf-add').first().click(); // コーヒー 150ml = 90mg
-  await expect(page.getByTestId('caf-now')).toContainText('90');
-  // 23:00 is 15.5 hours later: 90 × 0.5^(15.5/5) ≈ 10.5
-  await expect(page.getByTestId('caf-bed')).toContainText('約10mg');
 });
 
 test('仮眠タイマー rings at the end; 目の休憩 nudges after an hour of writing', async ({ page }) => {

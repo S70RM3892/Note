@@ -1,24 +1,10 @@
-/** 体調・睡眠: 睡眠記録, カフェイン, 仮眠タイマー, 目の休憩, and the APK's widget / おやすみモード. */
+/** 体調・睡眠: 睡眠記録, 仮眠タイマー, 目の休憩, and the APK's widget / おやすみモード. */
 import { native } from '../../platform';
 import { h } from '../../ui/dom';
 import { toast } from '../../ui/dialogs';
 import { icon } from '../../ui/icons';
-import {
-  CAFFEINE_DAILY_MAX,
-  CAFFEINE_DRINKS,
-  CAFFEINE_EVENING,
-  CAFFEINE_HALF_LIFE,
-  HEALTH_SOURCES,
-  TEEN_SLEEP,
-  caffeineAt,
-  caffeineToday,
-  clock,
-  nextClock,
-  nightFrom,
-  sleepHours,
-  sleepSummary,
-} from '../health';
-import { card, md, num, source, todayKey } from '../ui';
+import { HEALTH_SOURCES, TEEN_SLEEP, clock, nightFrom, sleepHours, sleepSummary } from '../health';
+import { card, md, source, todayKey } from '../ui';
 import type { Tool, ToolCtx } from './index';
 
 // ---------- 睡眠記録 ----------
@@ -109,67 +95,6 @@ function sleepTool(ctx: ToolCtx): HTMLElement {
       h('div', null, h('div', null, '朝、ライブラリで昨夜の睡眠を聞く'), h('div', { class: 'desc' }, '設定の就寝・起床時刻が初期値。1タップで記録')),
       h('input', { type: 'checkbox', class: 'switch', checked: s.prefs.askSleep, onchange: (e: Event) => ctx.hub.update((st) => void (st.prefs.askSleep = (e.target as HTMLInputElement).checked)) }),
     ),
-  );
-}
-
-// ---------- カフェイン ----------
-
-function caffeineTool(ctx: ToolCtx): HTMLElement {
-  const s = ctx.hub.get();
-  const now = Date.now();
-  const bedtime = nextClock(ctx.app.settings.get().bedtime, now);
-  const at = (t: number, hl: number = CAFFEINE_HALF_LIFE.typical) => Math.round(caffeineAt(s.caffeine, t, hl));
-  const today = caffeineToday(s.caffeine, now);
-  const add = (mg: number, label: string) => {
-    ctx.hub.update((st) => {
-      st.caffeine = [...st.caffeine.filter((e) => e.at > now - 3 * 86_400_000), { at: Date.now(), mg, label }];
-    });
-    ctx.refresh();
-  };
-  let custom: number | null = null;
-  const list = s.caffeine.filter((e) => todayKey(e.at) === todayKey(now)).sort((a, b) => b.at - a.at);
-  const warn: string[] = [];
-  if (today.total > CAFFEINE_DAILY_MAX) warn.push(`今日は${today.total}mg。成人の上限の目安 ${CAFFEINE_DAILY_MAX}mg を超えた。`);
-  if (today.evening >= 100) warn.push(`${CAFFEINE_EVENING}時以降に${today.evening}mg。夕方以降のカフェインは寝つきと深い眠りを悪くする。`);
-  return h(
-    'div',
-    null,
-    card(
-      '飲んだら押す',
-      h(
-        'div',
-        { class: 'chips' },
-        CAFFEINE_DRINKS.map((d) => {
-          const mg = Math.round((d.per100 * d.ml) / 100);
-          return h('button', { class: 'chip', 'data-testid': 'caf-add', onclick: () => add(mg, d.label) }, `${d.label} ${d.ml}ml（${mg}mg）`);
-        }),
-      ),
-      h('div', { class: 'row', style: 'gap:6px;margin-top:8px' }, num(null, (v) => (custom = v), { placeholder: 'mg（エナジードリンクは缶の表示を見る）', 'data-testid': 'caf-mg', style: 'flex:1;max-width:360px' }), h('button', { class: 'btn small', onclick: () => (custom && custom > 0 ? add(Math.round(custom), 'その他') : toast('mg を入れて')) }, icon('plus', 16))),
-      source('食品安全委員会 食品中のカフェイン（ファクトシート）', HEALTH_SOURCES.caffeine),
-    ),
-    card(
-      '体の中のカフェイン（推定）',
-      h('div', { class: 'big-num', 'data-testid': 'caf-now' }, `${at(now)}`, h('small', { class: 'muted', style: 'font-size:14px' }, ' mg（いま）')),
-      h('div', { 'data-testid': 'caf-bed' }, `就寝（${ctx.app.settings.get().bedtime}）のとき 約${at(bedtime)}mg`, h('small', { class: 'muted' }, `（半減期${CAFFEINE_HALF_LIFE.min}時間なら${at(bedtime, CAFFEINE_HALF_LIFE.min)}・${CAFFEINE_HALF_LIFE.max}時間なら${at(bedtime, CAFFEINE_HALF_LIFE.max)}mg）`)),
-      h('div', null, `今日の合計 ${today.total}mg / 目安 ${CAFFEINE_DAILY_MAX}mg`),
-      warn.map((w) => h('div', { class: 'bad', 'data-testid': 'caf-warn' }, w)),
-      h('p', { class: 'muted small' }, `体の中の量は、半減期（日本人で3〜7時間、ここでは5時間）で半分ずつ減る計算。上限${CAFFEINE_DAILY_MAX}mgは成人の目安。夕方以降（ここでは${CAFFEINE_EVENING}時以降）は控える。`),
-      source('厚生労働省 健康づくりのための睡眠ガイド 2023', HEALTH_SOURCES.sleepGuide),
-    ),
-    list.length
-      ? card(
-          '今日',
-          list.map((e) =>
-            h(
-              'div',
-              { class: 'list-row' },
-              h('span', { class: 'list-main' }, `${new Date(e.at).getHours()}:${String(new Date(e.at).getMinutes()).padStart(2, '0')} ${e.label}`),
-              h('b', null, `${e.mg}mg`),
-              h('button', { class: 'icon-btn', 'aria-label': '消す', onclick: () => (ctx.hub.update((st) => void (st.caffeine = st.caffeine.filter((x) => x !== e))), ctx.refresh()) }, icon('close', 14)),
-            ),
-          ),
-        )
-      : null,
   );
 }
 
@@ -346,20 +271,6 @@ export const HEALTH_TOOLS: Tool[] = [
       return s.avg !== null ? `7日平均 ${s.avg.toFixed(1)}時間（${s.nights}晩）` : null;
     },
     render: sleepTool,
-  },
-  {
-    id: 'caffeine',
-    group: 'health',
-    title: 'カフェイン',
-    blurb: '寝る時刻に体に残る量を計算',
-    icon: 'coffee',
-    summary: (ctx) => {
-      const s = ctx.hub.get();
-      const t = caffeineToday(s.caffeine);
-      if (!t.total) return null;
-      return `今日 ${t.total}mg・就寝時 約${Math.round(caffeineAt(s.caffeine, nextClock(ctx.app.settings.get().bedtime)))}mg`;
-    },
-    render: caffeineTool,
   },
   { id: 'nap', group: 'health', title: '仮眠タイマー', blurb: '10〜20分で起こす。暗い画面で待つ', icon: 'alarm', render: napTool },
   {

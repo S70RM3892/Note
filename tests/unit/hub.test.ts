@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cardsCsv, deckCounts, gradeCard, looksEnglish, parseCards, studyQueue, type Card } from '../../src/hub/cards';
 import { emptyHub, mergeHub, normalizeHub } from '../../src/hub/data';
 import { convertKyotsu, KYOTSU_FULL, nijiNeeded, nijiTotal, PAST_RESULTS, SCHEDULE_R9, TOTAL_FULL } from '../../src/hub/exam';
-import { BreakWatch, caffeineAt, caffeineToday, nightFrom, sleepSummary } from '../../src/hub/health';
+import { BreakWatch, nightFrom, sleepSummary } from '../../src/hub/health';
 import { mistakeStats } from '../../src/hub/mistakes';
 import { bookPlan, mockKyodai, mockPreset, mockSeries, mockTotal, pastStats, setBookDone, weakestSubject, type Book, type MockExam } from '../../src/hub/plan';
 import { bitOp, charCodes, fromTwos, parseBase, toBase, twosComplement } from '../../src/hub/radix';
@@ -76,7 +76,7 @@ describe('模試・参考書・過去問', () => {
   });
 });
 
-describe('睡眠・カフェイン・目の休憩', () => {
+describe('睡眠・目の休憩', () => {
   it('a night across midnight, and the week compared with 8〜10 hours', () => {
     const n = nightFrom('2026-10-26', '23:30', '06:30')!;
     expect((n.wake - n.bed) / 3_600_000).toBe(7);
@@ -97,15 +97,6 @@ describe('睡眠・カフェイン・目の休憩', () => {
     // bedtimes 23:00, 0:00, 23:30, 23:00, 23:00 measured from noon: spread well under an hour
     expect(s.bedSpread!).toBeGreaterThan(20);
     expect(s.bedSpread!).toBeLessThan(30);
-  });
-
-  it('caffeine halves every 5 hours: 100mg at 19:00 is 50mg at midnight (睡眠ガイド2023の例)', () => {
-    const e = [{ at: at('2026-10-26T19:00'), mg: 100, label: 'コーヒー' }];
-    expect(caffeineAt(e, at('2026-10-27T00:00'))).toBeCloseTo(50);
-    expect(caffeineAt(e, at('2026-10-26T18:00'))).toBe(0);
-    const day = [...e, { at: at('2026-10-26T09:00'), mg: 400, label: 'x' }];
-    expect(caffeineAt(day, at('2026-10-26T14:00'))).toBeCloseTo(200);
-    expect(caffeineToday(day, at('2026-10-26T20:00'))).toEqual({ total: 500, evening: 100 });
   });
 
   it('nudges a short pause halfway through an hour of writing, a real break at the hour, and starts over after 10 minutes off', () => {
@@ -202,6 +193,8 @@ describe('ハブのデータ', () => {
     expect(merged.reflections['2026-10-25'].good).toBe('手元');
     expect(merged.reflections['2026-10-24'].good).toBe('前日');
     expect(normalizeHub({ prefs: { dnd: true } }).prefs).toMatchObject({ dnd: true, eyeBreaks: true });
+    // Data of the removed カフェイン page doesn't come back.
+    expect('caffeine' in normalizeHub({ caffeine: [{ at: 1, mg: 90, label: 'コーヒー' }] })).toBe(false);
   });
 
   it('the weekly report sums the last seven days and reads as text', () => {

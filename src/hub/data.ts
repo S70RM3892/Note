@@ -2,7 +2,7 @@
 import type { Repo } from '../store/repo';
 import type { Card, Deck } from './cards';
 import type { CheckItem, KyotsuId, NijiId } from './exam';
-import type { CaffeineEntry, SleepEntry } from './health';
+import type { SleepEntry } from './health';
 import type { MistakeEntry } from './mistakes';
 import { defaultPastGrid, type Book, type MockExam, type PastGrid, type Question, type Reflection } from './plan';
 
@@ -41,7 +41,6 @@ export interface HubState {
   sleep: SleepEntry[];
   /** The morning the sleep question was answered or dismissed. */
   sleepAsked?: string;
-  caffeine: CaffeineEntry[];
   checks: Record<string, boolean>;
   customChecks: { kyotsu: CheckItem[]; niji: CheckItem[] };
   tracks: Track[];
@@ -61,7 +60,6 @@ export function emptyHub(): HubState {
     cards: [],
     cardLog: {},
     sleep: [],
-    caffeine: [],
     checks: {},
     customChecks: { kyotsu: [], niji: [] },
     tracks: [],
@@ -73,7 +71,8 @@ export function emptyHub(): HubState {
 export function normalizeHub(raw: unknown): HubState {
   const base = emptyHub();
   if (!raw || typeof raw !== 'object') return base;
-  const r = raw as Partial<HubState>;
+  // カフェインの記録 was removed: drop what an earlier version saved.
+  const { caffeine: _gone, ...r } = raw as Partial<HubState> & { caffeine?: unknown };
   return {
     ...base,
     ...r,
@@ -111,7 +110,6 @@ export function mergeHub(localRaw: unknown, incomingRaw: unknown): HubState {
     cards: unionBy(a.cards, b.cards, id),
     cardLog: { ...b.cardLog, ...a.cardLog },
     sleep: unionBy(a.sleep, b.sleep, (s) => s.day).sort((x, y) => (x.day < y.day ? -1 : 1)),
-    caffeine: unionBy(a.caffeine, b.caffeine, (c) => String(c.at)),
     checks: { ...b.checks, ...a.checks },
     customChecks: { kyotsu: unionBy(a.customChecks.kyotsu, b.customChecks.kyotsu, id), niji: unionBy(a.customChecks.niji, b.customChecks.niji, id) },
     tracks: a.tracks, // audio isn't in backups
