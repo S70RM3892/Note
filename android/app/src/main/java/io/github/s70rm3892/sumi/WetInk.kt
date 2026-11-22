@@ -6,8 +6,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
-import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -18,8 +16,6 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import org.json.JSONObject
-import kotlin.math.ceil
-import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -39,8 +35,6 @@ data class WetParams(
     val penWidth: Float,
     val gamma: Float,
     val stabilization: Float,
-    /** ペン先まで描く: also show the catch-up from the modeled tip to the pen (replaced every frame). */
-    val tail: Boolean = false,
 ) {
     companion object {
         fun parse(json: String): WetParams {
@@ -59,7 +53,6 @@ data class WetParams(
                 penWidth = o.optDouble("width", 2.2).toFloat(),
                 gamma = o.optDouble("gamma", 0.8).toFloat(),
                 stabilization = o.optDouble("stab", 0.25).toFloat(),
-                tail = o.optBoolean("tail", false),
             )
         }
     }
@@ -83,22 +76,12 @@ class PointList {
         private set
     var size = 0
         private set
-    private var minX = Float.POSITIVE_INFINITY
-    private var minY = Float.POSITIVE_INFINITY
-    private var maxX = Float.NEGATIVE_INFINITY
-    private var maxY = Float.NEGATIVE_INFINITY
 
     fun add(x: Float, y: Float) {
         if (size + 2 > data.size) data = data.copyOf(data.size * 2)
         data[size++] = x
         data[size++] = y
-        minX = min(minX, x); minY = min(minY, y)
-        maxX = max(maxX, x); maxY = max(maxY, y)
     }
-
-    /** Could a line of half-width [pad] through these points paint inside [box]? */
-    fun mayTouch(box: RectF, pad: Float): Boolean =
-        size > 0 && minX - pad < box.right && maxX + pad > box.left && minY - pad < box.bottom && maxY + pad > box.top
 
     fun count() = size / 2
 
@@ -114,54 +97,7 @@ class WetRun(val color: Int, val width: Float, val pts: FloatArray)
  * is ever erased mid-stroke, which is what showed as white jaggies); [wipe] is only used when
  * strokes must go and others stay (rare).
  */
-class WetFrame(val wipe: Boolean, val runs: List<WetRun>, val replace: WetReplace? = null)
-
-/**
- * Swap one region of the front buffer for new contents in a single step: [runs] is everything
- * that shows inside [box] (the ink there, plus the catch-up to the pen). It is composed off
- * screen and copied over the region with SRC blending, so no cleared state is ever scanned out —
- * the way androidx.ink updates its front buffer ("the time between the two can be visible due to
- * scanline racing", CanvasInProgressStrokesRenderHelperV33).
- */
-class WetReplace(val box: RectF, val runs: List<WetRun>, val tail: WetRun? = null)
-
-/** Bounds of a polyline of [width] (device px), padded for antialiasing and rounded out to whole pixels. */
-fun runBounds(pts: FloatArray, width: Float): RectF? {
-    if (pts.size < 2) return null
-    var l = pts[0]; var t = pts[1]; var r = pts[0]; var b = pts[1]
-    for (i in 1 until pts.size / 2) {
-        l = min(l, pts[i * 2]); r = max(r, pts[i * 2])
-        t = min(t, pts[i * 2 + 1]); b = max(b, pts[i * 2 + 1])
-    }
-    val pad = width / 2 + 2
-    return RectF(floor(l - pad), floor(t - pad), ceil(r + pad), ceil(b + pad))
-}
-
-/**
- * The parts of a stroke that paint inside [box]: runs of consecutive segments reaching it. A
- * replace frame repaints only these, so its cost doesn't grow with the length of the stroke.
- */
-fun runsIn(color: Int, width: Float, list: PointList, box: RectF, out: MutableList<WetRun>) {
-    val pad = width / 2 + 2
-    if (!list.mayTouch(box, pad)) return
-    val d = list.data
-    val n = list.count()
-    if (n == 1) {
-        out += WetRun(color, width, floatArrayOf(d[0], d[1]))
-        return
-    }
-    var start = -1 // first point of the current run
-    for (i in 1..n) {
-        val hit = i < n &&
-            min(d[i * 2 - 2], d[i * 2]) - pad < box.right && max(d[i * 2 - 2], d[i * 2]) + pad > box.left &&
-            min(d[i * 2 - 1], d[i * 2 + 1]) - pad < box.bottom && max(d[i * 2 - 1], d[i * 2 + 1]) + pad > box.top
-        if (hit && start < 0) start = i - 1
-        if (!hit && start >= 0) {
-            out += WetRun(color, width, d.copyOfRange(start * 2, i * 2))
-            start = -1
-        }
-    }
-}
+class WetFrame(val wipe: Boolean, val runs: List<WetRun>)
 
 object LinePainter {
     private val path = Path()
@@ -210,8 +146,6 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
         strokeJoin = Paint.Join.ROUND
     }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    /** Composites an off-screen layer over its region as-is (transparent where it has no ink). */
-    private val swap = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
     private val renderer: CanvasFrontBufferedRenderer<WetFrame>
 
     init {
@@ -219,16 +153,7 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
         renderer = CanvasFrontBufferedRenderer(view, object : CanvasFrontBufferedRenderer.Callback<WetFrame> {
             override fun onDrawFrontBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, param: WetFrame) {
                 if (param.wipe) canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-                val rp = param.replace
-                if (rp == null) {
-                    for (run in param.runs) LinePainter.paint(canvas, run, line, dot)
-                } else {
-                    // The region's new contents (which include this frame's new points) are drawn
-                    // into a layer and land on the front buffer in one SRC copy.
-                    val n = canvas.saveLayer(rp.box, swap)
-                    for (run in rp.runs) LinePainter.paint(canvas, run, line, dot)
-                    canvas.restoreToCount(n)
-                }
+                for (run in param.runs) LinePainter.paint(canvas, run, line, dot)
             }
 
             override fun onDrawMultiBufferedLayer(canvas: Canvas, bufferWidth: Int, bufferHeight: Int, params: Collection<WetFrame>) {
@@ -266,11 +191,8 @@ class FrontBufferSurface(private val container: FrameLayout, x: Int, y: Int, w: 
  * down (so a page that lags behind the pen still pairs every stroke with its own), skips its own
  * live ink for it, and says when the committed stroke is on screen (done).
  *
- * Nothing on the visible buffer is ever erased and then drawn again (two steps the display can
- * catch in between — that showed as white jaggies). Ink is added; and with [WetParams.tail] the
- * gap between the modeled tip and the pen is filled by a catch-up that is swapped, region by
- * region, in one SRC copy per frame ([WetReplace]). There is no prediction ahead of the pen.
- * The hand-off waits until the pen is idle and
+ * Drawing only ever adds to the visible buffer: no prediction that would have to be erased
+ * again, so nothing flashes or tears under the pen. The hand-off waits until the pen is idle and
  * every stroke on the overlay is committed, then wipes the whole overlay in one go — the same
  * ink is underneath, so nothing visibly changes.
  *
@@ -310,8 +232,6 @@ class WetInk(
         var stale = false
         var lastCssX = Double.NaN
         var lastCssY = Double.NaN
-        /** Where this stroke's catch-up to the pen is on screen now (null = none). */
-        var tailBox: RectF? = null
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -488,7 +408,7 @@ class WetInk(
         strokes.addLast(s)
         if (strokes.size > MAX_STROKES) trim()
         active = s
-        draw(s, tail = null)
+        draw(s)
         main.removeCallbacks(sweep)
         main.postDelayed(sweep, 150)
     }
@@ -501,37 +421,7 @@ class WetInk(
             for (q in s.modeler.update(cssX(ev.getHistoricalX(i, h), p), cssY(ev.getHistoricalY(i, h), p), pressure(ev.getHistoricalPressure(i, h), p), timeOf(ev, h))) push(s, q, p)
         }
         for (q in s.modeler.update(cssX(ev.getX(i), p), cssY(ev.getY(i), p), pressure(ev.getPressure(i), p), timeOf(ev, -1))) push(s, q, p)
-        draw(s, if (p.tail) tailOf(s, p) else null)
-    }
-
-    /**
-     * The catch-up from the last modeled point to where the pen is now — the path the stroke takes
-     * if the pen lifts this instant (device px, starting at the last painted point). The modeled
-     * tip trails the pen by about 9 ms of travel; this closes that gap on screen. It never runs
-     * ahead of the pen, so there is no overshoot to take back, only the gap's shape to refine.
-     */
-    private fun tailOf(s: Stroke, p: WetParams): FloatArray? {
-        val n = s.points.count()
-        if (n == 0) return null
-        val pred = s.modeler.predict()
-        if (pred.isEmpty()) return null
-        val out = FloatArray((pred.size + 1) * 2)
-        var k = 0
-        var lx = s.points.data[n * 2 - 2]
-        var ly = s.points.data[n * 2 - 1]
-        out[k++] = lx; out[k++] = ly
-        var len = 0f
-        for (q in pred) {
-            val x = (q.x * p.dpr).toFloat()
-            val y = (q.y * p.dpr).toFloat()
-            val d = hypot(x - lx, y - ly)
-            if (d < 0.9f) continue
-            len += d
-            out[k++] = x; out[k++] = y
-            lx = x; ly = y
-        }
-        // Shorter than a pixel or two: nothing to see, and not worth a replace frame.
-        return if (k < 4 || len < 1.5f) null else out.copyOf(k)
+        draw(s)
     }
 
     private fun end(ev: MotionEvent, p: WetParams) {
@@ -541,7 +431,7 @@ class WetInk(
             for (q in s.modeler.update(cssX(ev.getX(i), p), cssY(ev.getY(i), p), pressure(ev.getPressure(i), p), timeOf(ev, -1))) push(s, q, p)
         }
         for (q in s.modeler.finish()) push(s, q, p)
-        draw(s, tail = null)
+        draw(s)
         finish(s)
         active = null
         settleSoon(SETTLE_MS)
@@ -575,40 +465,19 @@ class WetInk(
         s.points.add((q.x * p.dpr).toFloat(), (q.y * p.dpr).toFloat())
     }
 
-    /**
-     * Paint the points added since the last frame, joined to the last one painted. Without a
-     * catch-up (before or now) this only adds to the screen. With one, the region holding the old
-     * catch-up, the new points and the new catch-up is swapped in a single step for its new
-     * contents: every stroke's ink there, plus the new catch-up.
-     */
-    private fun draw(s: Stroke, tail: FloatArray?) {
+    /** Paint the points added since the last frame, joined to the last one painted. Adds only. */
+    private fun draw(s: Stroke) {
         val sf = surface ?: return
         val n = s.points.count()
-        val old = s.tailBox
-        if (n == s.drawn && tail == null && old == null) return
-        val fresh = if (n > s.drawn) WetRun(s.color, s.width, s.points.copyFrom(if (s.drawn > 0) s.drawn - 1 else 0)) else null
+        if (n == s.drawn) return
+        val run = WetRun(s.color, s.width, s.points.copyFrom(if (s.drawn > 0) s.drawn - 1 else 0))
         s.drawn = n
-        if (tail == null && old == null) {
-            sf.render(WetFrame(false, listOf(fresh!!)))
-            return
-        }
-        val box = RectF()
-        old?.let { box.union(it) }
-        fresh?.let { r -> runBounds(r.pts, r.width)?.let { box.union(it) } }
-        val tailBox = tail?.let { runBounds(it, s.width) }
-        tailBox?.let { box.union(it) }
-        s.tailBox = tailBox
-        val runs = ArrayList<WetRun>()
-        for (o in strokes) runsIn(o.color, o.width, o.points, box, runs)
-        val tailRun = tail?.let { WetRun(s.color, s.width, it) }
-        tailRun?.let { runs += it }
-        sf.render(WetFrame(false, if (fresh != null) listOf(fresh) else emptyList(), WetReplace(box, runs, tailRun)))
+        sf.render(WetFrame(false, listOf(run)))
     }
 
     /** Wipe the overlay and paint [keep] again (only when some strokes must go and others stay). */
     private fun repaint(keep: List<Stroke>) {
         val sf = surface ?: return
-        for (o in strokes) o.tailBox = null
         if (keep.isEmpty()) {
             sf.clear()
             return

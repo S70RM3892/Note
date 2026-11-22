@@ -214,7 +214,6 @@ export function openSettings(app: App) {
       ),
     ),
     native?.setWetInk ? toggle('低遅延ペン', '書いている線を Android が直接（フロントバッファで）描く。ペン先への追従が速くなる。表示がおかしいときはオフ', s.wetInk, (v) => set({ wetInk: v })) : null,
-    native?.setWetInk && s.wetInk ? toggle('ペン先まで描く', '線の先端とペン先のすき間（約0.01秒ぶん）を埋めて、線がペンに貼りつくようにする。線の先がちらつく・欠けるときはオフ（オフでも線は今まで通り）', s.wetCatchUp, (v) => set({ wetCatchUp: v })) : null,
     toggle('ペン先のプレビュー', 'S ペンを画面に近づけると、書く位置と太さを色付きの点で表示', s.penCursor, (v) => set({ penCursor: v })),
     toggle('最後のページの下まで書いたら次のページを追加', 'PDF のページには追加しない。元に戻すで書いた線と一緒に消える', s.autoAppendPage, (v) => set({ autoAppendPage: v })),
     toggle('ペンを止めて図形補正', '書き終わりで0.45秒止めると直線・円・四角に補正', s.shapeHold, (v) => set({ shapeHold: v })),
