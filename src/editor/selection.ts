@@ -96,6 +96,16 @@ export class SelectionManager {
     this.onChange();
   }
 
+  /** The selected objects changed shape under the selection (e.g. a picture was cropped): fit the box again. */
+  refresh() {
+    if (!this.pageId) return;
+    this.ed.renderer.invalidate(this.pageId, this.worldlessBounds());
+    this.bounds = this.computeBounds();
+    this.m = IDENTITY;
+    this.ed.renderer.invalidate(this.pageId, this.bounds);
+    this.onChange();
+  }
+
   clear() {
     if (this.pageId) {
       const pid = this.pageId;

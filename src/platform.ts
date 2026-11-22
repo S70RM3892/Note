@@ -27,7 +27,7 @@ export interface SumiNativeBridge {
   pickBackupFolder?(): void;
   /** 集中モード: pin the app to the screen (true) or release it. */
   setFocusLock?(on: boolean): void;
-  /** Low-latency wet ink: where and how the pen draws (JSON {on, rect, dpr, zoom, color, style, width, gamma, stab}). */
+  /** Low-latency wet ink: where and how the pen draws (JSON {on, rect, dpr, zoom, color, style, width, gamma, stab, tail}). */
   setWetInk?(json: string): void;
   /** The page's pen stroke started at (x, y) CSS px of the writing area: the id of the shell's wet stroke there, or 0. */
   wetClaim?(x: number, y: number): number;

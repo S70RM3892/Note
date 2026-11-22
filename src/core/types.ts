@@ -44,9 +44,19 @@ export interface TextItem extends ItemBase {
   color: string;
 }
 
+/** トリミング: the part of the whole picture that shows, in fractions of it (0..1). */
+export interface Crop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface ImageItem extends ItemBase {
   type: 'image';
   asset: string;
+  /** The item's box shows only this part of the picture (the picture itself is kept whole). */
+  crop?: Crop;
 }
 
 /** A photographed document traced into vector paths (crisp at any zoom). */
@@ -58,6 +68,7 @@ export interface ScanItem extends ItemBase {
   photo?: string;
   /** Show the photo instead of the vectors. */
   showPhoto?: boolean;
+  crop?: Crop;
 }
 
 export type Item = TapeItem | TextItem | ImageItem | ScanItem;

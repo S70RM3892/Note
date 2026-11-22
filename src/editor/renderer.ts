@@ -38,8 +38,8 @@ export class Renderer {
   private raf = 0;
   /** True while a pinch/pan is running: caches are scaled instead of re-rendered. */
   gesture = false;
-  desk = '#e4e5e9';
-  shadow = 'rgba(0,0,0,0.16)';
+  desk = '#e6e8ef';
+  shadow = 'rgba(24,28,48,0.055)';
   onFrame: () => void = () => {};
 
   constructor(
@@ -165,8 +165,9 @@ export class Renderer {
       if (!page || !r) continue;
       const sx = (r.x - vp.camX) * z * dpr, sy = (r.y - vp.camY) * z * dpr;
       const sw = r.w * z * dpr, sh = r.h * z * dpr;
+      // A soft, layered drop shadow (three widening translucent sheets; no blur filter on the ink canvas).
       ctx.fillStyle = this.shadow;
-      ctx.fillRect(sx + 1.5 * dpr, sy + 2 * dpr, sw, sh);
+      for (const k of [1, 3, 7]) ctx.fillRect(sx - k * 0.5 * dpr, sy + k * 0.4 * dpr, sw + k * dpr, sh + k * 0.6 * dpr);
 
       const cap = maxScaleFor(page.w, page.h);
       if (target > cap * 1.02) {

@@ -338,6 +338,9 @@ test('参照ビュー: read-only notebook beside the one being written, restored
   await page.getByTestId('ref-btn').click();
   await page.getByTestId('ref-choice').filter({ hasText: '問題' }).click();
   await expect(page.getByTestId('ref-pane')).toBeVisible();
+  // The pane is there before its notebook has loaded and been fitted to it.
+  await page.waitForFunction(() => !!(window as any).sumi.view.ref?.doc?.pages?.length);
+  await page.waitForTimeout(300);
   const refBox = (await page.getByTestId('ref-pane').boundingBox())!;
   // The pen scrolls the reference instead of writing on it.
   const cam0 = await page.evaluate(() => (window as any).sumi.view.ref.editor.vp.camY);

@@ -1,4 +1,4 @@
-import type { Item, Pt, Rect, Stroke } from './types';
+import type { Crop, ImageItem, Item, Pt, Rect, ScanItem, Stroke } from './types';
 
 export const MM = 96 / 25.4; // page units per millimetre
 
@@ -197,4 +197,32 @@ export function clamp(v: number, lo: number, hi: number): number {
 
 export function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(bx - ax, by - ay);
+}
+
+/** The box the whole picture of a (possibly cropped) image or scan would take: same rotation, crop removed. */
+export function fullItem<T extends ImageItem | ScanItem>(it: T): T {
+  const cr = it.crop;
+  if (!cr) return it;
+  const W = it.w / cr.w, H = it.h / cr.h;
+  // Centre of the whole picture, from the centre of the visible part.
+  const lx = W / 2 - (cr.x + cr.w / 2) * W, ly = H / 2 - (cr.y + cr.h / 2) * H;
+  const c = Math.cos(it.rot), s = Math.sin(it.rot);
+  const cx = it.x + it.w / 2 + lx * c - ly * s, cy = it.y + it.h / 2 + lx * s + ly * c;
+  const out = { ...it, x: cx - W / 2, y: cy - H / 2, w: W, h: H };
+  delete out.crop;
+  return out;
+}
+
+/** Show only `crop` (fractions of the whole picture; null = all of it). The picture stays where it is on the page. */
+export function cropItem<T extends ImageItem | ScanItem>(it: T, crop: Crop | null): T {
+  const full = fullItem(it);
+  if (!crop) return full;
+  const x = Math.min(1, Math.max(0, crop.x)), y = Math.min(1, Math.max(0, crop.y));
+  const w = Math.min(1 - x, Math.max(0.01, crop.w)), h = Math.min(1 - y, Math.max(0.01, crop.h));
+  if (x < 1e-4 && y < 1e-4 && w > 1 - 1e-4 && h > 1 - 1e-4) return full;
+  const lx = (x + w / 2 - 0.5) * full.w, ly = (y + h / 2 - 0.5) * full.h;
+  const c = Math.cos(full.rot), s = Math.sin(full.rot);
+  const cx = full.x + full.w / 2 + lx * c - ly * s, cy = full.y + full.h / 2 + lx * s + ly * c;
+  const bw = w * full.w, bh = h * full.h;
+  return { ...full, x: cx - bw / 2, y: cy - bh / 2, w: bw, h: bh, crop: { x, y, w, h } };
 }

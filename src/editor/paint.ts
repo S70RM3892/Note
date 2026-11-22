@@ -1,4 +1,4 @@
-import { rectsIntersect, strokeBounds, itemBounds } from '../core/geometry';
+import { fullItem, itemCorners, rectsIntersect, strokeBounds, itemBounds } from '../core/geometry';
 import { isDarkColor, paintStroke } from '../core/ink';
 import { drawPaper } from '../core/paper';
 import type { ImageItem, Item, Page, Rect, ScanItem, TapeItem, TextItem } from '../core/types';
@@ -123,6 +123,7 @@ export function paintText(ctx: Ctx, t: TextItem) {
  * Returns false while the artwork is still loading.
  */
 export function paintScan(ctx: Ctx, it: ScanItem, assets: AssetCache | undefined, clip: Rect | null): boolean {
+  if (it.crop) return cropped(ctx, it, (full) => paintScan(ctx, full, assets, clip));
   if (it.showPhoto && it.photo) {
     const img = assets?.image(it.photo);
     withItemTransform(ctx, it, () => {
@@ -165,7 +166,20 @@ export function paintScan(ctx: Ctx, it: ScanItem, assets: AssetCache | undefined
   return true;
 }
 
-function paintImage(ctx: Ctx, it: ImageItem, assets?: AssetCache): boolean {
+/** トリミング: paint the whole picture, clipped to the item's box. */
+function cropped<T extends ImageItem | ScanItem>(ctx: Ctx, it: T, paint: (full: T) => boolean): boolean {
+  ctx.save();
+  ctx.beginPath();
+  itemCorners(it).forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.clip();
+  const ok = paint(fullItem(it));
+  ctx.restore();
+  return ok;
+}
+
+export function paintImage(ctx: Ctx, it: ImageItem, assets?: AssetCache): boolean {
+  if (it.crop) return cropped(ctx, it, (full) => paintImage(ctx, full, assets));
   const img = assets?.image(it.asset);
   withItemTransform(ctx, it, () => {
     if (img) ctx.drawImage(img, 0, 0, it.w, it.h);
