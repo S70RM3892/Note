@@ -59,8 +59,6 @@ export interface Settings {
   focusPin: boolean;
   /** APK: draw the stroke being written natively (front-buffered, lowest latency). */
   wetInk: boolean;
-  /** APK: fill the gap between the modeled stroke and the pen tip (replaced every frame). */
-  wetCatchUp: boolean;
   /** APK: notifications 30 minutes before bedtime and at bedtime. */
   notifyBedtime: boolean;
   /** APK: a daily notification with the number of pages due for review. */
@@ -113,7 +111,6 @@ export const DEFAULT_SETTINGS: Settings = {
   lastAutoBackup: 0,
   focusPin: false,
   wetInk: true,
-  wetCatchUp: true,
   notifyBedtime: false,
   notifyReview: false,
   reviewTime: '19:00',
