@@ -1,6 +1,7 @@
 import { strokeSvgPath, isDarkColor } from '../core/ink';
 import { templateGeometry } from '../core/paper';
-import type { Item, Page, ScanItem, Stroke } from '../core/types';
+import { fullItem, itemCorners } from '../core/geometry';
+import type { Item, Page, Rect, ScanItem, Stroke } from '../core/types';
 import type { AssetCache } from '../editor/assets';
 import { maxScaleFor, paintPage, paintText } from '../editor/paint';
 import type { Repo } from '../store/repo';
@@ -57,8 +58,11 @@ async function scanDoc(repo: Repo, it: ScanItem) {
   return JSON.parse(await a.blob.text()) as import('../core/types').VectorDoc;
 }
 
-export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeExport; title?: string }): Promise<Blob> {
-  const { PDFDocument, rgb, degrees, BlendMode, StandardFonts } = await import('pdf-lib');
+/**
+ * `region`: export only that part of the (single) page — the PDF page is the size of the region.
+ */
+export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeExport; title?: string; region?: Rect }): Promise<Blob> {
+  const { PDFDocument, rgb, degrees, BlendMode, StandardFonts, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath, concatTransformationMatrix } = await import('pdf-lib');
   const out = await PDFDocument.create();
   let labelFont: Awaited<ReturnType<typeof out.embedFont>> | undefined;
   if (opts.title) out.setTitle(opts.title);
@@ -68,7 +72,10 @@ export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeEx
 
   for (const page of pages) {
     const W = page.w * PT, H = page.h * PT;
-    const p = out.addPage([W, H]);
+    const rg = opts.region;
+    const p = out.addPage(rg ? [rg.w * PT, rg.h * PT] : [W, H]);
+    // Everything below is drawn in whole-page coordinates; a region just shifts it (the rest falls outside the page).
+    if (rg) p.pushOperators(concatTransformationMatrix(1, 0, 0, 1, -rg.x * PT, -(page.h - rg.y - rg.h) * PT));
     if (page.pdf) {
       let src = srcDocs.get(page.pdf.asset);
       if (!src) {
@@ -130,24 +137,45 @@ export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeEx
     }
     const dark = !page.pdf && isDarkColor(page.bg.color);
 
-    for (const it of page.items) {
+    for (const shown of page.items) {
+      if (shown.type !== 'image' && shown.type !== 'scan') continue;
+      // トリミング: the whole picture is drawn, clipped to the item's box.
+      const it = fullItem(shown);
+      const clipped = !!shown.crop;
+      if (clipped) {
+        const cs = itemCorners(shown).map((q) => ({ x: q.x * PT, y: H - q.y * PT }));
+        p.pushOperators(pushGraphicsState(), moveTo(cs[0].x, cs[0].y), lineTo(cs[1].x, cs[1].y), lineTo(cs[2].x, cs[2].y), lineTo(cs[3].x, cs[3].y), closePath(), clip(), endPath());
+      }
+      const unclip = () => {
+        if (clipped) p.pushOperators(popGraphicsState());
+      };
       if (it.type === 'scan' && !it.showPhoto) {
         const vd = await scanDoc(repo, it);
-        if (!vd) continue;
+        if (!vd) {
+          unclip();
+          continue;
+        }
         const o = itemOrigin(it, H);
         const k = (PT * it.w) / vd.w;
         for (const layer of vd.layers) {
           const col = rgb(...hexToRgb(layer.color));
           for (const t of layer.tiles) p.drawSvgPath(t.d, { x: o.x, y: o.y, scale: k, rotate: degrees(o.deg), color: col });
         }
+        unclip();
         continue;
       }
-      const assetId = it.type === 'image' ? it.asset : it.type === 'scan' ? it.photo : undefined;
-      if (!assetId) continue;
+      const assetId = it.type === 'image' ? it.asset : it.photo;
+      if (!assetId) {
+        unclip();
+        continue;
+      }
       let img = images.get(assetId);
       if (!img) {
         const a = await repo.getAsset(assetId);
-        if (!a) continue;
+        if (!a) {
+          unclip();
+          continue;
+        }
         const bytes = new Uint8Array(await a.blob.arrayBuffer());
         try {
           img = a.mime.includes('png') ? await out.embedPng(bytes) : a.mime.includes('jp') ? await out.embedJpg(bytes) : await out.embedPng(await toPng(a.blob));
@@ -158,6 +186,7 @@ export async function exportPdf(repo: Repo, pages: Page[], opts: { tapes: TapeEx
       }
       const pl = itemPlacement(it, H);
       p.drawImage(img, { x: pl.x, y: pl.y, width: pl.w, height: pl.h, rotate: degrees(pl.deg) });
+      unclip();
     }
     const drawStroke = (s: Stroke) => {
       const path = exportPath(s);

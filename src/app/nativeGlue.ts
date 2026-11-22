@@ -150,6 +150,7 @@ function installWetInk(app: App, bridge: SumiNativeBridge) {
         width: s.pen.width,
         gamma: s.pressureGamma,
         stab: s.stabilization,
+        tail: s.wetCatchUp,
       });
       if (json === last) return;
       last = json;

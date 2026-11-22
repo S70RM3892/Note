@@ -217,11 +217,11 @@ export class App {
     const t = this.settings.get().theme;
     const dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#1c1d22' : '#ffffff');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0b0c10' : '#eceef4');
     if (this.editor) {
       const cs = getComputedStyle(document.documentElement);
       this.editor.renderer.desk = cs.getPropertyValue('--desk').trim() || '#e4e5e9';
-      this.editor.renderer.shadow = dark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.16)';
+      this.editor.renderer.shadow = dark ? 'rgba(0,0,0,0.22)' : 'rgba(24,28,48,0.055)';
       this.editor.renderer.request();
     }
   }

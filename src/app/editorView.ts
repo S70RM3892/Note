@@ -21,7 +21,8 @@ import { writingStrokes } from '../ink/lines';
 import { recognizeStrokes, type RecognizedLine } from '../ink/recognize';
 import { nativeInk } from '../platform';
 import { LINE_HEIGHT, layoutText } from '../editor/paint';
-import { exportNotebookPdfDialog } from './exportDialog';
+import { cropDialog } from './cropDialog';
+import { exportNotebookPdfDialog, exportRegionPdf } from './exportDialog';
 import { imageItem } from './importers';
 import { chipGroup, paperFields, swatchGroup } from './newNotebook';
 import { markLabel, openPageOverview } from './pageOverview';
@@ -143,6 +144,7 @@ export class EditorView implements View {
           },
         },
         { label: 'このページの固定をすべて解除', icon: 'unlock', onClick: () => this.unlockPage(page) },
+        page.items.some((i) => i.id === id && (i.type === 'image' || i.type === 'scan')) ? { label: 'トリミング', icon: 'crop', onClick: () => this.cropPicture(page.id, id) } : null,
       ]);
     };
     this.unsubs.push(app.settings.subscribe(() => this.renderPalette()));
@@ -576,6 +578,7 @@ export class EditorView implements View {
   // ---------- selection menu ----------
 
   private selMenuFor: 'sel' | 'region' | null = null;
+  private selMenuKey = '';
 
   private positionSelMenu() {
     const sel = this.editor.selection;
@@ -587,10 +590,13 @@ export class EditorView implements View {
       return;
     }
     const kind = region ? 'region' : 'sel';
-    if (this.selMenu.hidden || this.selMenuFor !== kind) {
+    // The actions depend on what is selected (ink, text, a picture): rebuild when that changes.
+    const key = kind === 'sel' ? `${sel.pageId}:${[...sel.ids].join(',')}` : '';
+    if (this.selMenu.hidden || this.selMenuFor !== kind || this.selMenuKey !== key) {
       if (kind === 'region') this.buildRegionMenu();
       else this.buildSelMenu();
       this.selMenuFor = kind;
+      this.selMenuKey = key;
     }
     this.selMenu.hidden = false;
     const cs = region ?? sel.screenGeometry().cs;
@@ -608,21 +614,43 @@ export class EditorView implements View {
   private buildSelMenu() {
     const sel = this.editor.selection;
     const b = (ic: IconName, label: string, fn: () => void, testid?: string) => h('button', { onclick: fn, 'data-testid': testid }, icon(ic, 18), label);
+    // Only what applies to what is selected: a lone photo has no line width or colour to change.
+    const pg = sel.active && this.doc ? this.doc.page(sel.pageId!) : undefined;
+    const hasInk = !!pg?.strokes.some((st) => sel.ids.has(st.id));
+    const hasText = !!pg?.items.some((i) => i.type === 'text' && sel.ids.has(i.id));
+    const only = sel.ids.size === 1 ? pg?.items.find((i) => sel.ids.has(i.id)) : undefined;
+    const picture = only && (only.type === 'image' || only.type === 'scan') ? only : undefined;
+    const more = b('more', '', () => {
+      const r = more.getBoundingClientRect();
+      menu({ x: r.left + r.width / 2, y: r.bottom }, [
+        {
+          label: '選んだ範囲を PDF で書き出す',
+          icon: 'download',
+          onClick: () => {
+            const cur = sel.active && this.doc ? this.doc.page(sel.pageId!) : undefined;
+            if (cur) void exportRegionPdf(this.app, this.doc!.nb, cur, this.doc!.indexOf(cur.id) + 1, padRect(sel.bounds, cur, 8));
+          },
+        },
+      ]);
+    }, 'sel-more');
+    more.setAttribute('aria-label', 'その他');
     this.selMenu.replaceChildren(
+      ...[
+      picture ? b('crop', 'トリミング', () => this.cropPicture(sel.pageId!, picture.id), 'sel-crop') : null,
       b('trash', '削除', () => sel.delete(), 'sel-delete'),
       b('scissors', '切り取り', () => sel.cut()),
       b('copy', 'コピー', () => (sel.copy(), toast('コピーした'))),
       b('duplicate', '複製', () => sel.duplicate(), 'sel-duplicate'),
-      b('palette', '色', () => {
+      hasInk || hasText ? b('palette', '色', () => {
         const s = this.app.settings.get();
         const wrap = swatchGroup([...s.penColors, '#ffffff'], '', (c) => {
           sel.recolor(c);
           close();
         });
         const close = popover(this.selMenu, wrap);
-      }),
+      }) : null,
       b('tape', 'テープで隠す', () => sel.toTape(), 'sel-tape'),
-      b('pen', '太さ', () => {
+      hasInk ? b('pen', '太さ', () => {
         const widths = [
           { w: 1.2, label: '細' },
           { w: 2, label: '標準' },
@@ -648,18 +676,37 @@ export class EditorView implements View {
           ),
         );
         const close = popover(this.selMenu, wrap);
-      }, 'sel-width'),
-      b('square', '図形に整える', () => {
+      }, 'sel-width') : null,
+      hasInk ? b('square', '図形に整える', () => {
         const n = sel.toShapes();
         toast(n ? `${n}本を図形にした` : '図形として読めなかった（直線・円・楕円・多角形・折れ線）');
-      }, 'sel-shapes'),
+      }, 'sel-shapes') : null,
       b('lock', '固定', () => (sel.lock(), toast('固定した。投げ縄・消しゴムで動かない')), 'sel-lock'),
       b('brain', 'まちがいノートへ', () => void this.selectionToMistakes(), 'sel-mistake'),
+      more,
+      ].filter((x) => !!x) as HTMLElement[],
     );
     if (nativeInk.available()) this.selMenu.append(b('text', 'テキストに変換', () => void this.convertToText(), 'sel-ocr'));
     const page = sel.active && this.doc ? this.doc.page(sel.pageId!) : undefined;
     const said = page?.items.filter((i): i is TextItem => i.type === 'text' && sel.ids.has(i.id)).map((i) => i.text).join('\n');
     if (said && canSpeak()) this.selMenu.append(b('speaker', '読み上げ', () => speak(said, this.app.hub.get().prefs.ttsRate), 'sel-speak'));
+  }
+
+  /** トリミング: crop a placed photo or scan (undoable; the picture itself is kept whole). */
+  private cropPicture(pageId: string, id: string) {
+    const doc = this.doc;
+    const it = doc?.page(pageId)?.items.find((i) => i.id === id);
+    if (!doc || !it || (it.type !== 'image' && it.type !== 'scan')) return;
+    cropDialog(it, this.app.assets, (next) => {
+      const before = doc.content(pageId);
+      if (!before.items.some((i) => i.id === id)) return;
+      const sel = this.editor.selection;
+      const selected = sel.active && sel.ids.has(id);
+      doc.commit([{ pageId, before, after: { strokes: before.strokes, items: before.items.map((i) => (i.id === id ? next : i)) } }]);
+      this.editor.renderer.invalidate(pageId, null);
+      if (selected) sel.refresh();
+      toast(next.crop ? 'トリミングした（元に戻すで戻る）' : '画像全体に戻した');
+    });
   }
 
   /** 手書き → テキスト (APK): read the selected handwriting, let the user fix it, then replace or copy. */
@@ -777,6 +824,12 @@ export class EditorView implements View {
         const tape: TapeItem = { id: uid(), type: 'tape', ...t.rect, rot: 0, color: this.app.settings.get().tapeColor };
         this.doc!.addItems(t.page.id, [tape]);
       }, 'region-tape'),
+      b('download', 'PDFで書き出す', () => {
+        const t = target();
+        if (!t) return;
+        this.editor.setRegion(null);
+        void exportRegionPdf(this.app, this.doc!.nb, t.page, this.doc!.indexOf(t.page.id) + 1, t.rect);
+      }, 'region-pdf'),
     );
   }
 
